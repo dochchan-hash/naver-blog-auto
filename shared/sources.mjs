@@ -3,7 +3,7 @@ export function sourceSignature(project,assets){
 }
 export function needsSourceCheck(project,assets){return !!project.sourceText.trim()&&assets.some(a=>a.role==='construction'&&!a.excluded);}
 export function sourceReviewCurrent(project,assets){return !!project.sourceReview&&project.sourceReview.signature===sourceSignature(project,assets);}
-export function draftSourceSignature(project,assets){return JSON.stringify({source:sourceSignature(project,assets),decisions:sourceReviewCurrent(project,assets)?project.sourceReview.conflicts.map(c=>({id:c.id,decision:c.decision,text:c.customText})):null,original:[project.original.name,project.original.region,project.original.type,project.original.supplyArea,project.original.exclusiveArea,project.original.floorplanAssetId],target:[project.target.name,project.target.region,project.target.type,project.target.supplyArea,project.target.exclusiveArea,project.target.floorplanAssetId],manual:project.manualWork,concept:project.concept,comparison:project.comparison?.reviewed?project.comparison:null,photos:assets.filter(a=>a.role==='photo'&&!a.excluded).sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id)).map(a=>({id:a.id,hash:a.hash,space:a.space,group:a.group,order:a.order}))});}
+export function draftSourceSignature(project,assets){return JSON.stringify({source:sourceSignature(project,assets),decisions:sourceReviewCurrent(project,assets)?project.sourceReview.conflicts.map(c=>({id:c.id,decision:c.decision,text:c.customText})):null,original:[project.original.name,project.original.region,project.original.type,project.original.supplyArea,project.original.exclusiveArea,project.original.floorplanAssetId],target:[project.target.name,project.target.region,project.target.type,project.target.supplyArea,project.target.exclusiveArea,project.target.floorplanAssetId],...(project.coverAssetId?{coverAssetId:project.coverAssetId}:{}),...(project.questionQuote&&project.questionQuote!=='none'?{questions:{position:project.questionQuote,count:project.questionQuoteCount||1}}:{}),manual:project.manualWork,concept:project.concept,comparison:project.comparison?.reviewed?project.comparison:null,photos:assets.filter(a=>a.role==='photo'&&!a.excluded).sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id)).map(a=>({id:a.id,hash:a.hash,space:a.space,group:a.group,order:a.order}))});}
 export function refreshedPhotoLayoutSignature(project,assets){
   if(!project.draftSourceSignature)return undefined;
   const signature=draftSourceSignature(project,assets);
@@ -24,7 +24,8 @@ export function resolvedSourceEvidence(project,assets){
     if(c.decision==='both')facts.push({space:c.space,item:`공사범위 자료에는 ${file.map(f=>f.item).join(' / ')}로 적혀 있고, 카페 마감글에는 ${cafe.map(f=>f.item).join(' / ')}로 적혀 있습니다.`,sourceLabel:'두 자료의 차이를 구분하여 반영',disputed:true});
   }
   const pending=review.conflicts.filter(c=>c.decision==='pending'||c.decision==='custom'&&!c.customText.trim());
-  return {facts,cafeText:'',pending,reviewed:true};
+  let cafeText=project.sourceText;for(const c of review.conflicts)if(!['cafe','both'].includes(c.decision))for(const i of c.cafeFactIndexes){const quote=review.cafeFacts[i]?.evidence;if(quote)cafeText=cafeText.split(quote).join('[자료 차이 검토에 따라 이 항목은 원문 참고에서 제외됨]');}
+  return {facts,cafeText,pending,reviewed:true};
 }
 export function unresolvedConstructionFacts(project,assets){
   const review=sourceReviewCurrent(project,assets)?project.sourceReview:null;

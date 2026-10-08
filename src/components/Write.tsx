@@ -1,30 +1,30 @@
 import {Sparkles,Plus,ArrowUp,ArrowDown,Trash2,Layers,Copy,Download,RefreshCw} from 'lucide-react';
 import type {Project,Asset,Block} from '../../shared/model';
-import {bodyText,keywordReport,photoGroups,SPACES} from '../../shared/domain.mjs';
+import {bodyText,keywordReport,photoLayoutBlocks,missingSpaceDescriptions} from '../../shared/domain.mjs';
 import {Field,SectionTitle,Button,Notice,Next} from './Common';
 import {SourceDifferences} from './Construction';
 import {refreshedPhotoLayoutSignature} from '../../shared/sources.mjs';
 type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;task:(kind:string)=>void;go:(phase:Project['phase'])=>void;notify:(s:string)=>void;busy:boolean;save:()=>Promise<void>;};
 export function WriteStep({project,assets,update,task,go,notify,busy,save}:Props){
   const report=keywordReport(project) as (Project['keywords'][number]&{count:number;ok:boolean;collision:boolean})[];const map=new Map(assets.map(a=>[a.id,a]));
+  const missing=project.blocks.length?missingSpaceDescriptions(project,assets):[];
   const editBlock=(id:string,patch:Partial<Block>)=>update({blocks:project.blocks.map(b=>b.id===id?{...b,...patch}:b),draftStatus:'edited'});
   const move=(id:string,direction:number)=>{const blocks=[...project.blocks],i=blocks.findIndex(b=>b.id===id);if(i+direction<0||i+direction>=blocks.length)return;[blocks[i],blocks[i+direction]]=[blocks[i+direction],blocks[i]];update({blocks,draftStatus:'edited'});};
   const layout=()=>{
-    const groups=photoGroups(assets);const base=project.blocks.filter(b=>b.kind!=='photos');const blocks:Block[]=[];const used=new Set<string>();
-    const add=(space:string)=>{if(used.has(space))return;used.add(space);groups.filter(g=>g.space===space).forEach(g=>blocks.push({id:crypto.randomUUID(),kind:'photos',space,assetIds:g.assets.map((a:Asset)=>a.id)}));};
-    add('표지');for(const b of base){if(b.kind==='heading'&&b.space)add(b.space);blocks.push(b);}
-    for(const s of SPACES.filter(s=>s!=='표지'))if(!used.has(s)&&groups.some(g=>g.space===s)){add(s);blocks.push({id:crypto.randomUUID(),kind:'heading',space:s,text:s},{id:crypto.randomUUID(),kind:'text',space:s,text:''});}
-    update({blocks,draftStatus:'edited',draftSourceSignature:refreshedPhotoLayoutSignature(project,assets)});notify('현재 사진 순서와 묶음을 원고에 반영했습니다.');
+    const blocks=photoLayoutBlocks(project,assets) as Block[];
+    update({blocks,draftStatus:'edited',draftSourceSignature:refreshedPhotoLayoutSignature(project,assets)});const missing=missingSpaceDescriptions({...project,blocks},assets);notify(missing.length?`사진 배치를 반영했습니다. ${missing.join('·')} 설명은 추천글 다시 생성으로 채워 주세요.`:'현재 사진 순서와 묶음을 원고에 반영했습니다.');
   };
   const copy=async()=>{try{await navigator.clipboard.writeText(`${project.title}\n\n${bodyText(project)}\n\n${project.tags.map(t=>'#'+t).join(' ')}`);notify('원고를 복사했습니다.');}catch{notify('복사를 허용하거나 텍스트 파일로 내려받아 주세요.');}};
   const download=async(format:string)=>{await save();const a=document.createElement('a');a.href=`/api/projects/${project.id}/export?format=${format}`;a.download='';a.click();};
   return <><SectionTitle eyebrow="03 · 원고 작성" title="레몬하우스의 말투로" description="시공 근거와 사진을 바탕으로 작성하고, 미리보기를 보며 다듬어 주세요." action={<Button className="primary" busy={busy} onClick={()=>task('generate')}><Sparkles size={16}/>{project.publishMode==='automatic'?'생성 및 자동 발행':project.blocks.length?'추천글 다시 생성':'추천글 생성'}</Button>}/>
+    <section className="card"><Field label="질문과 답변 인용구" hint="선택한 개수만큼 서로 다른 질문과 답변 1~2줄을 추가합니다."><select value={project.questionQuote||'none'} onChange={e=>update({questionQuote:e.target.value as Project['questionQuote']})}><option value="none">추가하지 않음</option><option value="middle">글 중간에 나누어 추가</option><option value="end">글 마지막에 추가</option></select></Field>{project.questionQuote&&project.questionQuote!=='none'?<Field label="글 전체 질문·답변 개수"><select value={project.questionQuoteCount||1} onChange={e=>update({questionQuoteCount:Number(e.target.value)})}>{Array.from({length:10},(_,i)=><option key={i+1} value={i+1}>{i+1}개</option>)}</select></Field>:null}<Notice>공간별 설명은 최대 7줄로 간결하게 작성하며 원본 현장은 언급하지 않습니다.</Notice></section>
     <SourceDifferences project={project} assets={assets} update={update} task={task} busy={busy}/>
     <section className="card keyword-card"><SectionTitle title="키워드 목표" description="제목과 태그를 제외한 본문 기준입니다." action={<Button className="text-button" onClick={()=>update({keywords:[...project.keywords,{term:'',min:3,max:4}]})}><Plus size={15}/>서브 키워드</Button>}/>
       {project.keywords.map((k,i)=>{const count=report.find(r=>r.term===k.term);return <div className="keyword-row" key={i}><span className="keyword-kind">{i===0?'메인':'서브'}</span><input aria-label={`${i===0?'메인':'서브'} 키워드`} value={k.term} onChange={e=>update({keywords:project.keywords.map((x,j)=>i===j?{...x,term:e.target.value}:x)})} placeholder={i===0?`${project.target.name||'아파트명'} 인테리어`:'서브 키워드'}/><input className="number-input" type="number" aria-label="최소 횟수" min={0} max={100} value={k.min} onChange={e=>update({keywords:project.keywords.map((x,j)=>i===j?{...x,min:Number(e.target.value)}:x)})}/><span>~</span><input className="number-input" type="number" aria-label="최대 횟수" min={0} max={100} value={k.max} onChange={e=>update({keywords:project.keywords.map((x,j)=>i===j?{...x,max:Number(e.target.value)}:x)})}/><span>회</span><span className={`count-pill ${count?.ok?'ok':''}`}>{count?.count||0}회</span>{i>0?<button className="icon-button" aria-label="키워드 삭제" onClick={()=>update({keywords:project.keywords.filter((_,j)=>j!==i)})}><Trash2 size={14}/></button>:null}</div>;})}
       {report.some(k=>k.collision)?<Notice tone="warning">서로 포함된 키워드의 목표 횟수가 충돌합니다. 목표 범위를 조절해 주세요.</Notice>:null}
     </section>
     {project.generationWarnings.map((w,i)=><Notice key={i} tone="warning">{w}</Notice>)}
+    {missing.length?<Notice tone="warning">{missing.join('·')} 설명이 비어 있습니다. 추천글을 다시 생성하거나 해당 공간 설명을 작성해 주세요.</Notice>:null}
     <section className="card draft-editor"><div className="editor-toolbar"><span>{bodyText(project).replace(/\s/g,'').length.toLocaleString()}자 · 공백 제외</span><Button className="text-button small" onClick={layout}><RefreshCw size={14}/>사진 배치 반영</Button><Button className="text-button small" onClick={copy}><Copy size={14}/>복사</Button><Button className="text-button small" onClick={()=>download('text')}><Download size={14}/>내려받기</Button></div>
       <Field label="게시글 제목"><input className="title-input" value={project.title} onChange={e=>update({title:e.target.value,draftStatus:'edited'})} placeholder="추천글 제목을 입력하세요"/></Field>
       {project.blocks.length?project.blocks.map((b,i)=><div className="block-editor" key={b.id}><div className="block-label"><span>{b.kind==='photos'?'사진 묶음':b.kind==='heading'?`${b.space||''} 소제목`:b.kind==='quote'?'인용구':b.kind==='divider'?'구분선':b.space?`${b.space} 설명`:'본문'}</span><div><button className="icon-button" aria-label="블록 위로" disabled={i===0} onClick={()=>move(b.id,-1)}><ArrowUp size={14}/></button><button className="icon-button" aria-label="블록 아래로" disabled={i===project.blocks.length-1} onClick={()=>move(b.id,1)}><ArrowDown size={14}/></button><button className="icon-button" aria-label="블록 삭제" onClick={()=>update({blocks:project.blocks.filter(x=>x.id!==b.id),draftStatus:'edited'})}><Trash2 size={14}/></button></div></div>

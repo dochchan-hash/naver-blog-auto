@@ -9,13 +9,13 @@ class BrowserBridge {
       this.window=new BrowserWindow({width:1180,height:860,show:visible,title:'네이버 · 레몬하우스 스튜디오',webPreferences:{partition:'persist:naver',nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});
       if(this.credentials){for(const cookie of this.credentials.cookies||[]){const protocol=cookie.secure?'https':'http';const domain=cookie.domain.replace(/^\./,'');const {hostOnly,session,...value}=cookie;try{await this.window.webContents.session.cookies.set({...value,url:`${protocol}://${domain}${cookie.path||'/'}`});}catch{}}}
       this.window.webContents.setWindowOpenHandler(({url})=>{if(this.allowed(url)){this.window.loadURL(url);return {action:'deny'};}if(/^https:\/\//.test(url))shell.openExternal(url);return {action:'deny'};});
-      this.window.webContents.on('will-prevent-unload',event=>{if(this.quitting)event.preventDefault();});
+      this.window.webContents.on('will-prevent-unload',event=>{event.preventDefault();});
       this.window.webContents.on('will-navigate',(event,url)=>{if(!this.allowed(url)){event.preventDefault();}});
       const remember=()=>{clearTimeout(this.captureTimer);this.captureTimer=setTimeout(()=>this.status(this.expectedBlogId).catch(()=>{}),600);};
       this.window.webContents.on('did-finish-load',remember);this.window.webContents.on('did-frame-finish-load',remember);
       this.cookieListener=(event,cookie,cause,removed)=>{if(!removed&&/^NID_/.test(cookie.name))remember();};
       const session=this.window.webContents.session;session.cookies.on('changed',this.cookieListener);
-      const window=this.window;let closing=false;window.on('close',event=>{if(!this.vault||closing||this.quitting)return;event.preventDefault();this.status(this.expectedBlogId).catch(()=>{}).finally(()=>{closing=true;if(!window.isDestroyed())window.close();});});
+      const window=this.window;window.on('close',()=>{this.publishVerified=false;});
       this.window.on('closed',()=>{clearTimeout(this.captureTimer);session.cookies.off('changed',this.cookieListener);this.window=null;});
     }
     if(visible)this.window.show();if(url){try{await this.window.loadURL(url);}catch(error){if(error.errno!==-3&&error.code!=='ERR_ABORTED')throw error;}}return this;
@@ -72,25 +72,55 @@ class BrowserBridge {
     }while(Date.now()-start<10000);
     throw new Error(`네이버 편집기에서 필요한 버튼을 찾지 못했습니다 (${text||selector}).`);
   }
+  async clickNative(selector,{text}={}){
+    await this.waitFor(selector);const box=await this.evaluate(({selector,text})=>{const el=[...document.querySelectorAll(selector)].find(e=>(!text||((e.textContent||'')+' '+(e.getAttribute('aria-label')||'')).includes(text))&&e.getBoundingClientRect().width>0);if(!el)throw new Error('네이버 버튼을 찾지 못했습니다.');let r=el.getBoundingClientRect();if(r.top<0||r.bottom>innerHeight||r.left<0||r.right>innerWidth)el.scrollIntoView({block:'center'});r=el.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};},{selector,text},{selector});
+    await this.pointerClick(box);await sleep(120);
+  }
+  async pointerClick(box){const wc=this.window.webContents;wc.focus();const attached=wc.debugger.isAttached();if(!attached)wc.debugger.attach('1.3');try{await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',button:'none',buttons:0,...box});await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...box});await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...box});}finally{if(!attached)wc.debugger.detach();}}
   async text(selector,text){await this.waitFor(selector);await this.evaluate(({selector,text})=>{const node=document.querySelector(selector);const el=node.matches('[contenteditable="true"],input,textarea')?node:node.querySelector('[contenteditable="true"]')||node;el.focus();if('value'in el){const proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;setter?.call(el,text);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}else{document.getSelection()?.selectAllChildren(el);}}, {selector,text},{selector});
     const isInput=await this.evaluate(selector=>{const el=document.querySelector(selector);return 'value'in el;},selector,{selector});
     if(!isInput){await this.focusText(selector,{last:false,selectAll:true});await this.window.webContents.insertText(text);}
   }
   async focusText(selector,{last=true,selectAll=false}={}){
     this.reveal();
-    const box=await this.evaluate(({selector,last})=>{const nodes=[...document.querySelectorAll(selector)].filter(e=>e.getBoundingClientRect().width>0);const node=last?nodes.at(-1):nodes[0];if(!node)throw new Error('본문 입력란을 찾지 못했습니다.');node.scrollIntoView({block:'center'});const r=node.getBoundingClientRect();return {x:Math.round(last?r.right-5:r.left+Math.min(r.width/2,20)),y:Math.round(last?r.bottom-5:r.top+r.height/2)};},{selector,last},{selector});
-    const wc=this.window.webContents;wc.focus();for(const type of ['mouseDown','mouseUp'])wc.sendInputEvent({type,button:'left',clickCount:1,...box});await sleep(80);
+    const box=await this.evaluate(({selector,last,selectAll})=>{
+      const nodes=[...document.querySelectorAll(selector)].filter(e=>e.getBoundingClientRect().width>0),node=last?nodes.at(-1):nodes[0];
+      if(!node)throw new Error('본문 입력란을 찾지 못했습니다.');node.scrollIntoView({block:'center'});const r=node.getBoundingClientRect();
+      if(!selectAll){
+        const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);let text,current;
+        while(current=walker.nextNode())if(current.textContent.length&&current.parentElement?.getBoundingClientRect().width>0)text=current;
+        if(text){const range=document.createRange();range.setStart(text,text.textContent.length);range.collapse(true);const end=[...range.getClientRects()].at(-1);
+          if(end?.height>0)return {x:Math.round(Math.max(r.left+1,Math.min(end.right+1,r.right-1))),y:Math.round(end.top+end.height/2)};
+        }
+      }
+      return {x:Math.round(r.left+r.width/2),y:Math.round(last?r.bottom-5:r.top+r.height/2)};
+    },{selector,last,selectAll},{selector});
+    await this.pointerClick(box);await sleep(80);
     await this.evaluate(({selector,last,selectAll})=>{const nodes=[...document.querySelectorAll(selector)].filter(e=>e.getBoundingClientRect().width>0);const node=last?nodes.at(-1):nodes[0];const el=node.closest('[contenteditable="true"]')||node.querySelector('[contenteditable="true"]');if(!el)return;el.focus();const range=document.createRange();range.selectNodeContents(node);if(!selectAll)range.collapse(false);const s=document.getSelection();s.removeAllRanges();s.addRange(range);},{selector,last,selectAll},{selector});
     if(last&&!selectAll)await this.key(process.platform==='darwin'?'ArrowDown':'End',{modifiers:[process.platform==='darwin'?'meta':'control']});
   }
   async appendParagraph(){
-    // Click the editor's empty area below the final component to create its
-    // native trailing text component, including after quotes and separators.
-    this.reveal();const box=await this.evaluate(()=>{const last=[...document.querySelectorAll('.se-component')].at(-1);last.scrollIntoView({block:'center'});const r=last.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.bottom+24)};},null,{selector:'.se-title-text'});
-    this.window.webContents.focus();for(const type of ['mouseDown','mouseUp'])this.window.webContents.sendInputEvent({type,button:'left',clickCount:1,...box});await sleep(120);
-    await this.key(process.platform==='darwin'?'ArrowDown':'End',{modifiers:[process.platform==='darwin'?'meta':'control']});await this.key('Return');
+    this.reveal();
+    const tail=await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail]').forEach(e=>delete e.dataset.lemonTail);const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);if(!c)return null;c.dataset.lemonTail='true';const p=c.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;return {text:!!p,empty:![...p?.querySelectorAll('.__se-node')||[]].map(n=>n.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'')};},null,{selector:'.se-title-text'});
+    if(!tail)throw new Error('본문 끝 입력 위치를 찾지 못했습니다.');
+    if(tail.text){
+      await this.focusText('[data-lemon-tail="true"] .se-text-paragraph:last-child',{last:false});
+      // The pointer must land at the final character: SmartEditor remembers
+      // that position even when a programmatic DOM selection moves elsewhere.
+      await this.key('End');
+      if(!tail.empty)await this.key('Return');
+    }
+    else{
+      const cite=await this.evaluate(()=>!!document.querySelector('[data-lemon-tail="true"] .se-cite .se-text-paragraph'),null,{selector:'.se-title-text'});
+      if(cite){await this.focusText('[data-lemon-tail="true"] .se-cite .se-text-paragraph',{last:false});await this.key('End');await this.key('ArrowDown',{modifiers:[process.platform==='darwin'?'meta':'control']});await this.key('ArrowDown');await this.key('Return');}
+      else{await this.clickNative('[data-lemon-tail="true"] .se-component-content');await this.key('ArrowDown');await this.key('Return');}
+    }
+    await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail]').forEach(c=>delete c.dataset.lemonTail);},null,{selector:'.se-title-text'});
+    const until=Date.now()+3000;let ready=false;do{ready=await this.evaluate(()=>{const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);const p=c?.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(!p)return false;p.dataset.lemonInsertion='true';return true;},null,{selector:'.se-title-text'});if(ready)break;await sleep(100);}while(Date.now()<until);
+    if(!ready)throw new Error('인용구·구분선·사진 뒤에 본문 입력 위치를 만들지 못했습니다.');
+    await this.focusText('[data-lemon-insertion="true"]',{last:false});await this.key('End');await this.evaluate(()=>{document.querySelectorAll('[data-lemon-insertion]').forEach(p=>delete p.dataset.lemonInsertion);},null,{selector:'.se-title-text'});
   }
-  async key(keyCode,{modifiers=[]}={}){for(const type of ['keyDown','keyUp'])this.window.webContents.sendInputEvent({type,keyCode,modifiers});await sleep(80);}
+  async key(keyCode,{modifiers=[]}={}){const wc=this.window.webContents,keys={Return:['Enter',13],ArrowDown:['ArrowDown',40],End:['End',35]};if(!keys[keyCode]){for(const type of ['keyDown','keyUp'])wc.sendInputEvent({type,keyCode,modifiers});}else{const attached=wc.debugger.isAttached();if(!attached)wc.debugger.attach('1.3');try{const [key,windowsVirtualKeyCode]=keys[keyCode],mask=modifiers.reduce((n,m)=>n|({shift:8,control:2,meta:4,alt:1}[m]||0),0);await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key,code:key==='Enter'?'Enter':key,windowsVirtualKeyCode,modifiers:mask,...(key==='Enter'&&!mask?{text:'\r',unmodifiedText:'\r'}:{})});await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key,windowsVirtualKeyCode,modifiers:mask});}finally{if(!attached)wc.debugger.detach();}}await sleep(80);}
   async pasteHtml(html){const saved=await snapshotClipboard();try{await clipboard.write([new ClipboardItem({'text/plain':html.replace(/<[^>]*>/g,''),'text/html':html})]);this.window.webContents.focus();this.window.webContents.paste();await sleep(400);}finally{if(saved.length)await clipboard.write(saved);else await clipboard.clear();}}
   async upload(files,trigger){
     const wc=this.window.webContents;
@@ -128,7 +158,8 @@ class BrowserBridge {
           const editorId=editor?(location.href.match(/blog\\.naver\\.com\\/([^/?#]+)\\/postwrite/i)?.[1]||new URL(location.href).searchParams.get('blogId')||''):'';
           const loginPage=/nid\\.naver\\.com\\/nidlogin/.test(location.href);
           const signedIn=!!write||editor||!!document.querySelector('.gnb_name')||links.some(a=>/nidlogout|로그아웃/.test(a.href+' '+a.textContent));
-          return {blogId:query?.[1]||path?.[1]||path?.[2]||editorId||'',connected:signedIn&&!loginPage,canWrite:!!write||editor,loginPage};
+          const pageId=location.href.match(/[?&]blogId=([^&]+)/)?.[1]||(/blog\\.naver\\.com\\/([^/?#]+)(?:[/?#]|$)/i.exec(location.href)?.[1]||'');
+          return {blogId:query?.[1]||path?.[1]||path?.[2]||editorId||(write&&!/^(?:MyBlog\\.naver|PostView\\.naver|PostList\\.naver)$/i.test(pageId)?pageId:'')||'',connected:signedIn&&!loginPage,canWrite:!!write||editor,loginPage};
         })()`));}catch{}
       }
       const cookies=await this.window.webContents.session.cookies.get({});

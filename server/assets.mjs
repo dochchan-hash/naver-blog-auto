@@ -22,7 +22,15 @@ export class Assets {
   async originalForUpload(asset){
     const source=this.resolve(asset.originalPath);if(path.extname(source))return source;
     const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[asset.mime];if(!extension)throw fileError('게시할 사진 원본을 확인해 주세요.');
-    const destination=this.resolve(`${asset.id}/original.${extension}`);await fsp.copyFile(source,destination);return destination;
+    const destination=this.resolve(`${asset.id}/original.${extension}`);
+    try {await fsp.copyFile(source,destination,fs.constants.COPYFILE_EXCL);}
+    catch(error){
+      if(error.code!=='EEXIST')throw error;
+      const digest=async file=>{const hash=createHash('sha256');for await(const chunk of fs.createReadStream(file))hash.update(chunk);return hash.digest('hex');};
+      const [originalHash,existingHash]=await Promise.all([digest(source),digest(destination)]);
+      if(originalHash!==existingHash)throw fileError('게시할 사진 원본과 기존 파일이 다릅니다. 원본 파일을 확인해 주세요.');
+    }
+    return destination;
   }
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
@@ -50,7 +58,7 @@ export class Assets {
       const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'}[mime];
       const originalPath=`${id}/original.${extension}`;await fsp.rename(dest,this.resolve(originalPath));
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
-      const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:role==='photo'&&!existing.length?'표지':'기타',group:'',order:existing.length,excluded:false};
+      const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:'미분류',group:'',order:existing.length,excluded:false};
       this.store.put('asset',id,asset);
       this.queue=this.queue.then(()=>this.process(id)).catch(()=>{});
       return this.store.asset(id);

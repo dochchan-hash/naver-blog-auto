@@ -1,6 +1,8 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {validateNaverUrl,draftWarnings,paragraphHtml} from '../shared/domain.mjs';
-import {readReferenceFormat,formatFor,editorFormatMatches} from '../shared/format.mjs';
+import {validateNaverUrl,draftWarnings,paragraphHtml,missingSpaceDescriptions} from '../shared/domain.mjs';
+import {checkCancelled} from './jobs.mjs';
+import {readPublicationSettings} from '../shared/naver-controls.mjs';
+import {readReferenceFormat,formatFor,editorFormatMatches,blockTextStyles} from '../shared/format.mjs';
 const fail=(message,status=422)=>Object.assign(new Error(message),{status});
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const kstMinute=iso=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(iso)).replaceAll('-','.');
@@ -9,9 +11,14 @@ export function editorMatches(project,state){const normalize=t=>(t||'').replace(
 export class Naver {
   constructor(store,assets,bridge){Object.assign(this,{store,assets,bridge});this.searches=new Map();}
   requireBridge(){if(!this.bridge)throw fail('네이버 작업은 데스크톱 실행 프로그램에서 사용할 수 있습니다.',503);return this.bridge;}
-  async status(){if(!this.bridge)return {available:false,connected:false,verified:false};const blogId=this.store.get('settings','main').blogId;const status=await this.bridge.status(blogId);return {...status,verified:status.verified||this.store.list('publish').some(p=>p.blogId===blogId&&p.status==='completed'&&p.verified)};}
-  async checkConnection(){const bridge=this.requireBridge();return bridge.exclusive(async()=>{const id=this.store.get('settings','main').blogId;await bridge.open(id?`https://blog.naver.com/${id}`:'https://blog.naver.com/MyBlog.naver',{visible:false});let status;const start=Date.now();do{await pause(500);status=await bridge.status(id,{verify:true});if(status.connected)break;}while(Date.now()-start<6000);if(!status.connected)bridge.reveal();return status;});}
-  async changeAccount(){const result=await this.requireBridge().changeAccount();this.store.put('settings','main',{...this.store.get('settings','main'),blogId:''});return result;}
+  rememberBlog(status){
+    const settings=this.store.get('settings','main');
+    if(!settings.blogId&&status.connected&&status.canWrite&&/^[a-zA-Z0-9_-]{2,40}$/.test(status.blogId||''))this.store.put('settings','main',{...settings,blogId:status.blogId});
+    return status;
+  }
+  async status(){if(!this.bridge)return {available:false,connected:false,verified:false};const blogId=this.store.get('settings','main').blogId;const status=await this.bridge.status(blogId);this.cachedStatus={...status,verified:status.verified||this.store.list('publish').some(p=>p.blogId===blogId&&p.status==='completed'&&p.verified)};return this.rememberBlog(this.cachedStatus);}
+  async checkConnection(){const bridge=this.requireBridge();return bridge.exclusive(async()=>{const id=this.store.get('settings','main').blogId;await bridge.open(id?`https://blog.naver.com/${id}`:'https://blog.naver.com/MyBlog.naver',{visible:false});let status;const start=Date.now();do{await pause(500);status=await bridge.status(id,{verify:true});if(status.connected&&status.canWrite&&status.blogId)break;}while(Date.now()-start<6000);if(!status.connected)bridge.reveal();this.cachedStatus=status;return this.rememberBlog(status);});}
+  async changeAccount(){const result=await this.requireBridge().changeAccount();this.store.put('settings','main',{...this.store.get('settings','main'),blogId:''});this.cachedStatus=result;return result;}
   login(blogId=''){if(blogId&&!/^[a-zA-Z0-9_-]{2,40}$/.test(blogId))throw fail('블로그 아이디를 확인해 주세요.',400);const bridge=this.requireBridge();if(bridge.window&&!bridge.window.isDestroyed()){bridge.reveal();return bridge;}return bridge.open(blogId?`https://blog.naver.com/${blogId}`:'https://blog.naver.com/MyBlog.naver');}
   async readPost(url){
     validateNaverUrl(url);const bridge=this.requireBridge();
@@ -24,8 +31,7 @@ export class Naver {
         const root=document.querySelector('.se-main-container,.ContentRenderer,#article-area');
         const text=root?.innerText||'';
         const photoGroups=[...root?.querySelectorAll('.se-imageGroup,.se-image')||[]].filter(el=>!el.parentElement?.closest('.se-imageGroup')).map(el=>({count:el.querySelectorAll('img').length,layout:el.className}));
-        const sample=root?.querySelector('.se-text-paragraph');const css=sample?getComputedStyle(sample):null;
-        return {title:document.title,text,photoGroups,format:css?{align:css.textAlign,fontSize:css.fontSize,lineHeight:css.lineHeight}:null};
+        return {title:document.title,text,photoGroups};
       },null,{selector:selectors,urlContains:postId});
       if(!result.text.trim())throw fail('게시글 본문을 읽지 못했습니다. 로그인 권한을 확인하거나 본문을 직접 입력해 주세요.');
       const formatProfile=postId?await bridge.evaluate(readReferenceFormat,null,{selector:selectors,urlContains:postId}):null;
@@ -33,7 +39,7 @@ export class Naver {
     });
   }
   async searchComplex(query){
-    const bridge=this.requireBridge();if(!query.trim())throw fail('아파트명과 지역을 입력해 주세요.',400);
+    const bridge=this.requireBridge();if(!query.trim())throw fail('아파트명을 입력해 주세요.',400);
     return bridge.exclusive(()=>this.searchCandidates(query));
   }
   async searchCandidates(query){
@@ -68,23 +74,37 @@ export class Naver {
     return this.requireBridge().evaluate(()=>({paragraphs:[...document.querySelectorAll('.se-component.se-text .se-text-paragraph,.se-component.se-quotation .se-text-paragraph')].filter(p=>p.textContent.replace(/[\u200B\uFEFF\s]/g,'')).map(p=>({text:p.textContent,align:getComputedStyle(p).textAlign,spans:[...p.querySelectorAll('.__se-node')].filter(s=>s.textContent.replace(/[\u200B\uFEFF\s]/g,'')).map(s=>{const cs=getComputedStyle(s.querySelector('b,strong')||s);return {text:s.textContent,fontSize:cs.fontSize,fontWeight:cs.fontWeight,backgroundColor:getComputedStyle(s).backgroundColor,color:cs.color,fontFamily:cs.fontFamily};})})),components:[...document.querySelectorAll('.se-component')].map(c=>({class:c.className,text:[...c.querySelectorAll('.se-text-paragraph .__se-node')].map(e=>e.textContent).join('\n'),photoCount:c.querySelectorAll('img').length}))}),null,{selector:'.se-title-text'});
   }
   async insertStructure(block,project){
-    const bridge=this.requireBridge(),format=formatFor(project),quote=block.kind==='quote',name=quote?'quotation':'horizontal-line',variant=quote?format.quoteVariant:format.dividerVariant;
+    const bridge=this.requireBridge(),format=formatFor(project),quote=block.kind==='quote',name=quote?'quotation':'horizontal-line',variant=block.variant||(quote?format.quoteVariant:format.dividerVariant);
+    const component=quote?'.se-component.se-quotation':'.se-component.se-horizontalLine';
+    const before=await bridge.evaluate(selector=>document.querySelectorAll(selector).length,component,{selector:'.se-title-text'});
     await bridge.click(`button[data-name="${name}"].se-document-toolbar-select-option-button`);
     await bridge.click(`button[data-name="${name}"][data-role="option"][data-value="${variant}"]`);
-    const component=quote?'.se-component.se-quotation':'.se-component.se-horizontalLine';
     await bridge.waitFor(`${component}.se-l-${variant}`);
+    if(typeof before==='number'){
+      const until=Date.now()+10000;let added=false;
+      do{checkCancelled();added=await bridge.evaluate(({component,before,variant})=>{const nodes=[...document.querySelectorAll(component)];return nodes.length>before&&nodes.at(-1).classList.contains('se-l-'+variant);},{component,before,variant},{selector:'.se-title-text'});if(added)break;await pause(100);}while(Date.now()<until);
+      if(!added)throw fail('새 인용구·구분선 생성이 완료되지 않았습니다. 현재 입력한 원고는 편집기에 보존했습니다.');
+    }
     if(quote){
-      await bridge.focusText('.se-component.se-quotation .se-quote .se-text-paragraph');
+      await bridge.evaluate(()=>{document.querySelectorAll('[data-lemon-quote]').forEach(e=>delete e.dataset.lemonQuote);const c=[...document.querySelectorAll('.se-component.se-quotation')].at(-1);const p=[...c.querySelectorAll('.se-quote .se-text-paragraph')].at(-1);p.dataset.lemonQuote='true';},null,{selector:'.se-title-text'});
+      await bridge.focusText('[data-lemon-quote="true"]',{last:false});await bridge.key('End');
       await bridge.pasteHtml(paragraphHtml(block,format));
-      await bridge.key('ArrowDown',{modifiers:[process.platform==='darwin'?'meta':'control']});await bridge.key('ArrowDown');
+      if(typeof before==='number'){
+        const until=Date.now()+5000;let written=false;do{written=await bridge.evaluate(text=>{const c=document.querySelector('[data-lemon-quote="true"]')?.closest('.se-component');const normal=s=>s.replace(/[\s\u200B\uFEFF]/g,'');return !!c&&normal(c.querySelector('.se-quote').textContent).includes(normal(text));},block.text,{selector:'.se-title-text'});if(written)break;await pause(100);}while(Date.now()<until);
+        if(!written)throw fail(`인용구 '${block.text}'의 입력을 확인하지 못했습니다. 현재 원고는 편집기에 보존했습니다.`);
+      }
+      const style=blockTextStyles(block,format)[0];
+      const current=await bridge.evaluate(()=>{const c=[...document.querySelectorAll('.se-component.se-quotation')].at(-1);return getComputedStyle(c.querySelector('.se-quote .se-text-paragraph')).textAlign;},null,{selector:'.se-title-text'});
+      if(current!==style.align){await bridge.click('button[data-name="align"].se-document-toolbar-select-option-button');await bridge.click(`button[data-name="align"][data-value="${style.align}"]`);}
     }
   }
   async complexDetails(url,type=''){
     const parsed=new URL(validateNaverUrl(url));if(!['fin.land.naver.com','new.land.naver.com'].includes(parsed.hostname)||!parsed.pathname.startsWith('/complexes/'))throw fail('네이버 부동산 단지 상세 링크를 입력해 주세요.',400);
     const bridge=this.requireBridge();
-      await bridge.goto(url);await bridge.waitFor('button',18000,{urlContains:parsed.hostname});
+      if(parsed.hostname==='fin.land.naver.com')parsed.searchParams.set('tab','complex-info');
+      await bridge.goto(parsed.href);await bridge.waitFor('button',18000,{urlContains:parsed.hostname});
       const started=Date.now();let ready=false;
-      while(Date.now()-started<12000){ready=await bridge.click('[role="tab"],button',{text:'단지정보',optional:true});if(ready)break;await pause(250);}
+      while(Date.now()-started<12000){await bridge.click('[role="tab"]',{text:'단지정보',optional:true});ready=await bridge.evaluate(()=>Boolean(document.querySelector('img[alt*="평면"],input[type="radio"],[role="radio"]'))&&/공급면적/.test((document.querySelector('main,[role="main"],#content,#container')||document.body).innerText));if(ready)break;await pause(250);}
       if(!ready)throw fail('단지정보 화면을 찾지 못했습니다. 네이버 상세 링크를 확인하거나 도면을 직접 첨부해 주세요.');
       await bridge.waitFor('img[alt*="평면"],input[type="radio"],[role="radio"]');
       const readDetails=()=>bridge.evaluate(()=>{
@@ -128,13 +148,67 @@ export class Naver {
     const checked=await bridge.evaluate(text=>{const l=[...document.querySelectorAll('label')].find(e=>e.textContent.replace(/\s/g,'')===text);return !!(l&&(l.control||document.getElementById(l.htmlFor)||l.querySelector('input')))?.checked;},label);
     if(!checked)throw fail('네이버 공개 범위가 요청과 일치하지 않습니다. 최종 발행하지 않았습니다.');
   }
+  async setCoverSquare(imageIndex){
+    const bridge=this.requireBridge();checkCancelled();bridge.reveal?.();
+    const loadingUntil=Date.now()+30000;let loaded=false;do{checkCancelled();loaded=await bridge.evaluate(index=>{const image=[...document.querySelectorAll('.se-component.se-image img')][index];return !!image?.complete&&image.naturalWidth>0;},imageIndex,{selector:'.se-title-text'});if(loaded)break;await pause(250);}while(Date.now()<loadingUntil);
+    if(!loaded)throw fail('표지 사진이 아직 로딩되지 않았습니다. 네이버 화면에서 사진을 확인해 주세요.');
+    const marked=await bridge.evaluate(index=>{const image=[...document.querySelectorAll('.se-component.se-image img')][index];const component=image?.closest('.se-component');if(!component)return false;component.dataset.lemonCover='true';const el=component.querySelector('.se-module-image')||image;el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect(),options={bubbles:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0};for(const type of ['mousedown','mouseup','click'])el.dispatchEvent(new MouseEvent(type,options));return true;},imageIndex,{selector:'.se-title-text'});
+    if(!marked)throw fail('표지 사진을 네이버 편집기에서 찾지 못했습니다.');
+    if(bridge.clickNative)await bridge.clickNative('[data-lemon-cover="true"] .se-image-resource');
+    await bridge.evaluate(()=>{const el=document.querySelector('[data-lemon-cover="true"] img');if(!el)return;const r=el.getBoundingClientRect(),options={bubbles:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0,buttons:1};el.dispatchEvent(new PointerEvent('pointerdown',options));el.dispatchEvent(new MouseEvent('mousedown',options));el.dispatchEvent(new MouseEvent('mouseup',{...options,buttons:0}));el.click();},null,{selector:'.se-title-text'});
+    await pause(300);
+    const needsRepresentative=await bridge.evaluate(()=>!!document.querySelector('[data-lemon-cover="true"] button.se-set-rep-image-button:not(.se-is-selected)'),null,{selector:'.se-title-text'});
+    if(needsRepresentative)await bridge.click('[data-lemon-cover="true"] button.se-set-rep-image-button');
+    const cropClick=selector=>bridge.clickNative?bridge.clickNative(selector):bridge.click(selector);
+    await bridge.click('button[data-name="image-edit-right-label"],button[data-name="image-edit"]');await bridge.waitFor('button.npe_btn_crop');
+    await pause(2000);checkCancelled();
+    const start=Date.now();let ready=false;do{checkCancelled();ready=await bridge.evaluate(()=>!!document.querySelector('.npe_control_crop')?.getBoundingClientRect().width,null,{selector:'button.npe_btn_crop'});if(ready)break;await cropClick('button.npe_btn_crop');await pause(750);}while(Date.now()-start<30000);
+    if(!ready)throw fail('사진 비율 조정 메뉴를 열지 못했습니다. 표지 사진은 원본으로 보존했습니다.');
+    await pause(2500);checkCancelled();
+    await cropClick('button[data-crop="1:1"]');await pause(1500);checkCancelled();
+    let selected=await bridge.evaluate(()=>document.querySelector('button[data-crop="1:1"]')?.classList.contains('on'),null,{selector:'button.npe_btn_crop'});
+    if(!selected){await cropClick('button[data-crop="1:1"]');await pause(300);selected=await bridge.evaluate(()=>document.querySelector('button[data-crop="1:1"]')?.classList.contains('on'),null,{selector:'button.npe_btn_crop'});}
+    if(!selected)throw fail('사진 편집창에서 1:1 비율 선택을 확인하지 못했습니다.');
+    await cropClick('.npe_control_crop button.npe_crop_btn.npe_btn_confirm');await pause(500);await cropClick('button.npe_btn_submit');
+    const until=Date.now()+45000;let square=false;do{checkCancelled();square=await bridge.evaluate(index=>{const done=document.querySelector('button.npe_btn_submit');if(done?.getBoundingClientRect().width)return false;const image=document.querySelector('[data-lemon-cover="true"] img')||[...document.querySelectorAll('.se-component.se-image img')][index];if(!image||!image.complete||!image.naturalWidth)return false;image.closest('.se-component').dataset.lemonCover='true';return Math.abs(image.naturalWidth/image.naturalHeight-1)<.01;},imageIndex,{selector:'.se-title-text'});if(square)break;const editing=await bridge.evaluate(()=>{const button=document.querySelector('button.npe_btn_submit');return !!button&&!button.disabled&&button.getBoundingClientRect().width>0&&!document.querySelector('.npe_control_crop')?.getBoundingClientRect().width;});if(editing)await bridge.click('button.npe_btn_submit');await pause(500);}while(Date.now()<until);
+    if(!square)throw fail('표지의 1:1 비율 적용 결과를 확인하지 못했습니다. 최종 발행하지 않았습니다.');
+  }
+  async setCategory(){
+    const bridge=this.requireBridge(),selector='button[aria-label="카테고리 목록 버튼"]';
+    const current=await bridge.evaluate(selector=>document.querySelector(selector)?.textContent.trim(),selector,{selector:'.se-title-text'});
+    if(current==='추천 인테리어')return;
+    await bridge.click(selector);
+    const start=Date.now();let selected=false;
+    do{checkCancelled();selected=await bridge.evaluate(()=>{const el=document.querySelector('label[for$="_추천 인테리어"]')||[...document.querySelectorAll('[role="option"],button,a,label')].find(e=>e.getBoundingClientRect().width>0&&e.textContent.replace('하위 카테고리','').replace(/\s+/g,' ').trim()==='추천 인테리어');if(!el)return false;el.click();return true;});if(selected)break;await pause(150);}while(Date.now()-start<4000);
+    await pause(100);const chosen=await bridge.evaluate(selector=>document.querySelector(selector)?.textContent.replace('하위 카테고리','').trim(),selector);
+    if(!selected||chosen!=='추천 인테리어')throw fail('추천 인테리어 카테고리를 선택하지 못했습니다. 담당 블로그에 해당 카테고리가 있는지 확인해 주세요.');
+  }
+  async setTags(tags){
+    const bridge=this.requireBridge(),wanted=[...new Set(tags.map(t=>t.replace(/^#/,'').replace(/\s/g,'')).filter(Boolean))];
+    if(wanted.length>30)throw fail('네이버 태그는 최대 30개입니다.',400);
+    const selector='#tag-input,input[placeholder*="태그"]';
+    const exists=t=>bridge.evaluate(tag=>{const input=document.querySelector('#tag-input,input[placeholder*="태그"]'),root=input?.closest('[class*="tag_textarea"]')||input?.parentElement?.parentElement;return !!root&&[...root.querySelectorAll('[id^="tag-item-"],span[class*="tag_text"],span[class*="tag_name"]')].some(e=>e.textContent.replace(/^#/,'').replace(/\s/g,'')===tag)&&!input.value;},t);
+    await pause(400);
+    for(const tag of wanted){checkCancelled();if(await exists(tag))continue;await bridge.text(selector,tag);await bridge.evaluate(()=>{const el=document.querySelector('#tag-input,input[placeholder*="태그"]');el?.focus();for(const type of ['keydown','keypress','keyup'])el?.dispatchEvent(new KeyboardEvent(type,{key:'Enter',code:'Enter',keyCode:13,which:13,charCode:type==='keypress'?13:0,bubbles:true,cancelable:true}));},null,{selector});if(!await exists(tag)){await bridge.evaluate(()=>document.querySelector('#tag-input,input[placeholder*="태그"]')?.focus(),null,{selector});await bridge.key('Return');}
+      const start=Date.now();while(!await exists(tag)){if(Date.now()-start>2500)throw fail('태그를 등록하지 못했습니다: '+tag+'. 입력란에 글자만 남아 있는지 확인해 주세요.');await pause(100);}
+    }
+  }
+  async verifyPanel(project){
+    const state=await this.requireBridge().evaluate(readPublicationSettings,null,{selector:'button[class*="confirm_btn"]'});
+    if(state.category!=='추천 인테리어')throw fail('카테고리가 추천 인테리어로 설정되지 않았습니다. 최종 발행하지 않았습니다.');
+    if(project.scheduleAt&&(!state.reserved||state.time!==kstMinute(project.scheduleAt)))throw fail('네이버 예약 시각이 프로그램 설정과 일치하지 않습니다. 최종 발행하지 않았습니다.');
+    if(!project.scheduleAt&&state.reserved)throw fail('즉시 발행 대신 예약이 선택되어 있습니다. 최종 발행하지 않았습니다.');
+    const clean=t=>t.replace(/^#/,'').replace(/\s/g,'');
+    if(project.tags.some(t=>state.tagList.length?!state.tagList.map(clean).includes(clean(t)):!state.tags.replace(/\s/g,'').includes(clean(t)))||state.inputTag)throw fail('해시태그 등록을 모두 확인하지 못했습니다. 최종 발행하지 않았습니다.');
+    return state;
+  }
   async setSchedule(iso){
     const bridge=this.requireBridge();const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(iso));const value=Object.fromEntries(parts.map(p=>[p.type,p.value]));
     if(Number(value.minute)%10!==0)throw fail('네이버 예약 발행은 10분 단위입니다. 예약 시각을 조정해 주세요.',400);
     const selected=await bridge.evaluate(()=>{const el=[...document.querySelectorAll('label')].find(l=>l.textContent.trim()==='예약');if(!el)return false;el.click();return true;});
     if(!selected)throw fail('네이버 예약 선택란을 찾지 못했습니다.');
     await bridge.waitFor('select[aria-label*="예약"],select');
-    const dateSelector='input[readonly],input[class*="date"]';
+
     const date=await bridge.evaluate(()=>{const el=[...document.querySelectorAll('input')].find(e=>/^\d{4}\.\s*\d{2}\.\s*\d{2}/.test(e.value));if(!el)return '';el.click();return el.value;});
     if(!date)throw fail('예약 날짜 선택란을 찾지 못했습니다.');
     let month=(Number(date.slice(0,4))*12+Number(date.match(/\.\s*(\d{2})/)?.[1]))-1;const target=Number(value.year)*12+Number(value.month)-1;
@@ -143,7 +217,7 @@ export class Naver {
     const picked=await bridge.evaluate(day=>{const button=[...document.querySelectorAll('table button')].find(b=>b.textContent.trim()===String(Number(day))&&!b.disabled);if(!button)return false;button.click();return true;},value.day);
     if(!picked)throw fail('선택한 예약 날짜를 네이버에서 사용할 수 없습니다.');
     const times=await bridge.evaluate(({hour,minute})=>{
-      const selects=[...document.querySelectorAll('select')].filter(e=>e.getBoundingClientRect().width>0);const h=selects.find(e=>/예약.*시간/.test(e.getAttribute('aria-label')||''))||selects.find(e=>e.options.length===24);const m=selects.find(e=>/예약.*분/.test(e.getAttribute('aria-label')||''))||selects.find(e=>[...e.options].map(o=>o.textContent.trim()).join(',')==='00,10,20,30,40,50');
+      const selects=[...document.querySelectorAll('select')].filter(e=>e.getBoundingClientRect().width>0);const h=selects.find(e=>/hour_option|예약.*시간/.test(e.className+' '+(e.getAttribute('aria-label')||'')))||selects.find(e=>e.options.length===24);const m=selects.find(e=>/minute_option|예약.*분/.test(e.className+' '+(e.getAttribute('aria-label')||'')))||selects.find(e=>[...e.options].map(o=>o.textContent.trim()).join(',')==='00,10,20,30,40,50');
       for(const [el,text]of [[h,hour],[m,minute]]){const option=el&&[...el.options].find(o=>o.textContent.trim()===text);if(!option)return false;const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(el,option.value);el.dispatchEvent(new Event('change',{bubbles:true}));}return true;
     },value);
     if(!times)throw fail('예약 시각 입력을 완료하지 못했습니다.');
@@ -200,6 +274,7 @@ export class Naver {
     const bridge=this.requireBridge(),project=this.store.get('project',projectId),assets=this.store.assets(projectId),settings=this.store.get('settings','main');
     if(!/^[a-zA-Z0-9_-]{2,40}$/.test(settings.blogId))throw fail('설정에서 담당 블로그 아이디를 입력해 주세요.',400);
     const warnings=draftWarnings(project,assets);if(warnings.length&&!prepareOnly)throw fail(warnings.join('\n'),400);
+    const missing=missingSpaceDescriptions(project,assets);if(prepareOnly&&missing.length)throw fail(`${missing.join('·')} 공간 설명이 비어 있습니다. 추천글을 다시 생성하거나 설명을 작성해 주세요.`,400);
     if(prepareOnly&&(!project.original.name.trim()||!project.target.name.trim()||!project.title.trim()||!project.blocks.length))throw fail('현장 정보와 원고를 작성한 뒤 편집기에서 확인해 주세요.',400);
     if(project.publishMode==='review'&&!confirmReviewed&&!prepareOnly)throw fail('미리보기 확인 후 발행 버튼을 눌러 주세요.',400);
     if(project.scheduleAt&&new Date(project.scheduleAt).getTime()<=Date.now())throw fail('예약 시각은 현재보다 이후여야 합니다.',400);
@@ -221,13 +296,13 @@ export class Naver {
         await bridge.goto(`https://blog.naver.com/${encodeURIComponent(settings.blogId)}/postwrite`);
         await bridge.waitFor('.se-title-text');
         bridge.reveal?.();
-        await pause(1000);await bridge.click('.se-popup-button-cancel',{optional:true});
+        await pause(2500);await bridge.click('.se-popup-button-cancel',{optional:true});await pause(300);
         const account=await bridge.status(settings.blogId,{verify:true});if(!account.connected||!account.canWrite)throw fail('저장된 계정의 글쓰기 권한을 확인하지 못했습니다. 네이버 연결 창에서 다시 로그인해 주세요.',401);
         const existing=await bridge.evaluate(()=>({title:[...document.querySelectorAll('.se-title-text .__se-node')].map(e=>e.textContent).join('').trim(),body:[...document.querySelectorAll('.se-component.se-text .__se-node')].map(e=>e.textContent.trim()).join('')}),null,{selector:'.se-title-text'});
         if(existing.title||existing.body)throw fail('네이버 편집기에 기존 작성 중인 글이 있습니다. 브라우저에서 보관하거나 새 글을 열고 다시 시도해 주세요.');
         await bridge.text('.se-title-text',project.title);
         for(let i=0;i<project.blocks.length;i++){
-          const block=project.blocks[i];update({progress:10+Math.round(i/project.blocks.length*65),message:`본문 입력 ${i+1}/${project.blocks.length}`});
+          checkCancelled();const block=project.blocks[i];update({progress:10+Math.round(i/project.blocks.length*65),message:`본문 입력 ${i+1}/${project.blocks.length}`});
           if(block.kind==='photos'){
             const ids=block.assetIds||[],files=[];for(const id of ids){const a=this.store.get('asset',id);if(!a||a.role!=='photo'||a.projectId!==projectId)throw fail('사진 원본을 확인할 수 없습니다.');files.push(await this.assets.originalForUpload(a));}
             const before=await bridge.evaluate(()=>document.querySelectorAll('.se-component.se-image img,.se-component.se-imageGroup img').length,null,{selector:'.se-title-text'});
@@ -235,11 +310,12 @@ export class Naver {
             const input=await bridge.evaluate(()=>!!document.querySelector('input[type="file"][accept*=".jpg"]'),null,{selector:'.se-title-text'});
             await bridge.upload(files,input?null:()=>bridge.click('button[data-name="image"],button.se-image-toolbar-button,button[aria-label="사진 추가"]'));
             const start=Date.now();let count=before;
-            while(Date.now()-start<90000){
+            while(Date.now()-start<90000){checkCancelled();
               const modal=await bridge.click('button,label',{text:files.length>1?'콜라주':'개별 사진',optional:true});if(modal)await bridge.click('button',{text:'확인',optional:true});
               count=await bridge.evaluate(()=>document.querySelectorAll('.se-component.se-image img,.se-component.se-imageGroup img').length,null,{selector:'.se-title-text'});if(count>=before+files.length)break;await pause(500);
             }
             if(count<before+files.length)throw fail('사진 업로드 완료를 확인하지 못했습니다. 원본 파일과 네이버 용량 제한을 확인해 주세요.');
+            if(block.space==='표지'&&ids.length===1){const coverIndex=await bridge.evaluate(()=>document.querySelectorAll('.se-component.se-image img').length-1,null,{selector:'.se-title-text'});await this.setCoverSquare(coverIndex);}
             if(files.length>1){
               const grouped=await bridge.evaluate(expected=>[...document.querySelectorAll('.se-component.se-imageGroup')].at(-1)?.querySelectorAll('img').length===expected,files.length,{selector:'.se-title-text'});
               if(!grouped)throw fail('사진은 입력되었지만 묶음 배치를 확인하지 못했습니다. 열린 편집기에서 묶음을 확인해 주세요.');
@@ -260,21 +336,18 @@ export class Naver {
         if(bridge.appendParagraph&&!editorFormatMatches(project,await this.editorFormatting()))throw fail('네이버에 입력된 순서나 본문·공간명·인용구·구분선 서식이 원본과 다릅니다. 최종 발행하지 않았습니다.');
         await bridge.click('button.publish_btn__m9KHH,button[class*="publish_btn"]');
         await bridge.waitFor('input[class*="tag"],input[placeholder*="태그"],button[class*="confirm_btn"]');
-        await this.setVisibility(project.visibility||'public');
-        if(project.tags.length){
-          const selector='input[class*="tag"],input[placeholder*="태그"]';
-          const tagFrame=await bridge.frame(selector);if(!tagFrame)throw fail('태그 입력란을 찾지 못했습니다.');
-          for(const tag of project.tags){await bridge.text(selector,tag);bridge.window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});bridge.window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});await pause(100);}
-        }
-        if(project.scheduleAt)await this.setSchedule(project.scheduleAt);
         }
         const account=await bridge.status(settings.blogId,{verify:true});if(!account.connected||!account.canWrite)throw fail('담당 블로그 계정과 글쓰기 권한을 다시 확인해 주세요.',401);
         await this.setVisibility(project.visibility||'public');
+        await this.setCategory();await this.setTags(project.tags);
+        if(project.scheduleAt)await this.setSchedule(project.scheduleAt);else await bridge.click('label',{text:'현재'});
+        await this.verifyPanel(project);
         if(prepareOnly){
           const state=await readEditor();if(!state.panel)throw fail('네이버 발행 설정 화면을 확인하지 못했습니다.');
           const prepared={fingerprint,projectId,blogId:settings.blogId,status:'prepared',prepared:true,editorProof:proof(state),title:project.title,photos:state.photos,groups:state.groups,visibility:project.visibility||'public',scheduled:!!project.scheduleAt,scheduleAt:project.scheduleAt,warnings,createdAt:now};
           this.store.put('publish',fingerprint,prepared);bridge.reveal?.();update({message:'네이버 편집기에 원고를 준비했습니다. 최종 발행은 하지 않았습니다.',progress:100});return prepared;
         }
+        update({cancellable:false});checkCancelled();
         const record={fingerprint,projectId,blogId:settings.blogId,visibility:project.visibility||'public',status:'submitting',createdAt:now};this.store.put('publish',fingerprint,record);
         update({message:'발행 요청 후 등록 결과를 확인합니다.',progress:90});
         await bridge.click('button[class*="confirm_btn"]');

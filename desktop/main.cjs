@@ -28,4 +28,4 @@ if(single)app.whenReady().then(async()=>{
   app.on('activate',()=>{mainWindow?.show();});
 }).catch(error=>{dialog.showErrorBox('프로그램 실행 확인 필요',error.message);app.quit();});
 app.on('window-all-closed',()=>app.quit());
-app.on('before-quit',()=>{if(runtime){runtime.naver.bridge.quitting=true;runtime.server.close();}});
+app.on('before-quit',()=>{if(runtime)runtime.server.close();});

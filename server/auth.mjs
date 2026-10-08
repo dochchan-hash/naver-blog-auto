@@ -50,6 +50,7 @@ export class Auth {
   }
   async token(){
     const t=this.vault.get('chatgpt');if(!t||!this.account())throw appError('설정에서 ChatGPT 계정을 연결해 주세요.',401);
+    if(!this.account().scopes?.includes('chatgpt.tokens.use.direct'))throw appError('ChatGPT 구독 사용 권한이 없습니다. 계정을 다시 연결해 구독 사용을 승인해 주세요.',401);
     if(t.expiresAt>Date.now()+60000)return t.access_token;
     if(this.refreshing)return this.refreshing;
     this.refreshing=(async()=>{

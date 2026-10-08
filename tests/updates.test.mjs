@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {Store} from '../server/store.mjs';
+import {AI} from '../server/ai.mjs';
+import {createServer} from '../server/index.mjs';
+import {SPACES} from '../shared/domain.mjs';
+import sharp from 'sharp';
+
+test('사진을 8개 공간으로 분석하고 분석 도중 수정한 공간·묶음을 보존한다',async t=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-updates-')),store=new Store(dir);
+  t.after(async()=>{store.close();await fs.rm(dir,{recursive:true,force:true});});
+  assert.deepEqual(SPACES,['현관','거실','주방','안방','안방욕실','작은방1','작은방2','공용욕실']);
+  const photo={id:'photo',role:'photo',status:'ready',space:'미분류',hash:'one',filename:'작은방2.jpg',group:''};store.put('asset',photo.id,photo);
+  const ai=new AI(store,{}, {imageData:async()=> 'data:image/jpeg;base64,AA'},{});
+  ai.call=async()=>({space:'작은방2',description:'밝은 작은방',uncertain:false});
+  await ai.analyzeAsset(photo);assert.equal(store.get('asset','photo').space,'작은방2');
+  store.put('asset','photo',{...photo,hash:'two'});
+  ai.call=async()=>{store.put('asset','photo',{...store.get('asset','photo'),space:'안방',spaceManual:true,group:'user-group'});return {space:'작은방1',description:'방',uncertain:true};};
+  await ai.analyzeAsset(store.asset('photo'));
+  assert.equal(store.get('asset','photo').space,'안방');assert.equal(store.get('asset','photo').group,'user-group');
+});
+
+test('보관함 제목 수정·삭제와 링크 변경 초기화를 API에서 검증한다',async t=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-updates-api-')),runtime=await createServer({dataDir:dir,port:0});
+  t.after(async()=>{await runtime.close();await fs.rm(dir,{recursive:true,force:true});});
+  const init=await fetch(runtime.url+'/api/bootstrap'),data=await init.json();
+  const headers={cookie:init.headers.get('set-cookie').split(';')[0],'X-Lemon-CSRF':data.csrf,'Content-Type':'application/json'};
+  const p=data.projects[0];let res=await fetch(runtime.url+`/api/projects/${p.id}`,{method:'PUT',headers,body:JSON.stringify({...p,name:'수정한 보관함 제목'})});assert.equal(res.status,200);assert.equal((await res.json()).name,'수정한 보관함 제목');
+  runtime.auth.status=()=>({connected:true,models:[]});
+  runtime.ai.call=async()=>({space:'안방욕실',description:'안방에 연결된 욕실',uncertain:false});
+  const photoBytes=await sharp({create:{width:64,height:64,channels:3,background:'#dddddd'}}).jpeg().toBuffer(),form=new FormData();
+  form.append('file',new Blob([photoBytes],{type:'image/jpeg'}),'안방욕실.jpg');
+  const uploadHeaders={cookie:headers.cookie,'X-Lemon-CSRF':data.csrf};
+  res=await fetch(runtime.url+`/api/projects/${p.id}/assets?role=photo`,{method:'POST',headers:uploadHeaders,body:form});assert.equal(res.status,201);const photo=await res.json();
+  await runtime.assets.queue;await runtime.ai.photoQueue;assert.equal(runtime.store.asset(photo.id).space,'안방욕실');
+  res=await fetch(runtime.url+'/api/assets/batch',{method:'PATCH',headers,body:JSON.stringify([{id:photo.id,space:'공용욕실'}])});assert.equal(res.status,200);assert.equal(runtime.store.asset(photo.id).spaceManual,true);
+  runtime.store.put('asset','attached',{id:'attached',projectId:p.id,role:'photo',space:'거실'});
+  res=await fetch(runtime.url+`/api/projects/${p.id}`,{method:'DELETE',headers});assert.equal(res.status,200);assert.equal(runtime.store.get('project',p.id),null);assert.equal(runtime.store.get('asset','attached'),null);assert.equal(runtime.store.list('project').length,1);
+  runtime.store.put('style','main',{name:'스타일',rules:'저장된 규칙',status:'analyzed',referenceUrls:['https://blog.naver.com/ref/123'],analyzedAt:'old',referenceEvidence:[{url:'old'}]});
+  res=await fetch(runtime.url+'/api/style',{method:'PUT',headers,body:JSON.stringify({name:'스타일',rules:'저장된 규칙',referenceUrls:['https://blog.naver.com/ref/456']})});assert.equal(res.status,200);const style=await res.json();assert.equal(style.status,'reference');assert.equal(style.analyzedAt,undefined);assert.equal(style.referenceEvidence,undefined);
+});
+
+test('네이버 연결 확인이 끝나지 않아도 완료된 작업 상태를 조회한다',async t=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-updates-poll-'));
+  const runtime=await createServer({dataDir:dir,port:0,bridge:{status:()=>new Promise(()=>{})}});
+  t.after(async()=>{await runtime.close();await fs.rm(dir,{recursive:true,force:true});});
+  runtime.store.put('job','done',{id:'done',status:'completed',projectId:runtime.store.list('project')[0].id});
+  const response=await fetch(runtime.url+'/api/bootstrap',{signal:AbortSignal.timeout(2000)});assert.equal(response.status,200);assert.equal((await response.json()).jobs[0].status,'completed');
+});
+
+test('읽지 못한 참고 링크는 이전 분석을 성공으로 덮어쓰지 않는다',async t=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-updates-style-')),store=new Store(dir);
+  t.after(async()=>{store.close();await fs.rm(dir,{recursive:true,force:true});});
+  store.put('style','main',{name:'스타일',rules:'기존 규칙',status:'reference',referenceUrls:['https://blog.naver.com/ref/123']});
+  const ai=new AI(store,{}, {},{readPost:async()=>({text:''})});
+  ai.call=async()=>{throw new Error('빈 원문으로 AI를 호출하면 안 됩니다.');};
+  await assert.rejects(ai.analyzeStyle(()=>{}),/본문을 충분히 읽지 못했습니다/);assert.equal(store.get('style','main').status,'reference');
+});

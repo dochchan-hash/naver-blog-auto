@@ -30,16 +30,16 @@ test('사진 드래그는 묶음을 만들고 확장하며 한 장을 빼면 남
 });
 
 test('사진의 앞뒤 순서가 바뀌면 이전 원고의 발행을 막는다',()=>{
-  const {p}=fixture(),assets=photos().slice(0,2);p.sourceText='';p.sourceReview=null;p.title='추천 원고';p.blocks=[{kind:'text',text:'원고'},{kind:'photos',assetIds:['a']},{kind:'photos',assetIds:['b']}];
+  const {p}=fixture(),assets=photos().slice(0,2);p.sourceText='';p.sourceReview=null;p.title='추천 원고';p.blocks=[{kind:'heading',space:'거실',text:'거실'},{kind:'photos',space:'거실',assetIds:['a']},{kind:'photos',space:'거실',assetIds:['b']},{kind:'text',space:'거실',text:'원고'}];
   assert.equal(draftWarnings(p,assets).length,0);
   const moved=apply(assets,photoDropPatches(assets,'b','a','before'));assert(draftWarnings(p,moved).some(w=>w.includes('사진 순서')));
 });
 
-test('자료 차이의 여섯 처리 방식은 선택한 근거만 전달하고 원문을 다시 전달하지 않는다',()=>{
+test('자료 차이의 여섯 처리 방식은 선택한 근거만 전달하고 충돌 문구를 제외하고 나머지 원문을 전달한다',()=>{
   for(const decision of ['pending','construction','cafe','both','exclude','custom']){
     const {p,assets}=fixture();p.sourceReview.conflicts[0].decision=decision;p.sourceReview.conflicts[0].customText='실제 확인한 바닥은 장판';
     const result=resolvedSourceEvidence(p,assets),text=JSON.stringify(result.facts);
-    assert.equal(result.cafeText,'');assert.match(text,/주방 간접조명/);
+    assert.match(result.cafeText,/주방에는 간접조명/);assert.match(text,/주방 간접조명/);
     assert.equal(text.includes('강마루'),['construction','both'].includes(decision),decision);
     assert.equal(text.includes('폴리싱'),['cafe','both'].includes(decision),decision);
     assert.equal(text.includes('장판'),decision==='custom');
@@ -69,7 +69,7 @@ test('실제 생성 경로는 제외한 자재를 제거하고 파일·카페·�
   const store=await context(t),{p,assets}=fixture();p.sourceReview.conflicts[0].decision='exclude';store.put('project',p.id,p);assets[0].analysis={facts:p.facts};assets.forEach(a=>store.put('asset',a.id,a));store.put('style','main',{rules:'추천글 작성',status:'analyzed',referenceUrls:[]});
   const ai=new AI(store,{}, {},{});let received;
   ai.call=async(_,content)=>{received=JSON.parse(content[0].text);return {title:'추천 원고',intro:'안녕하세요',sections:[{space:'거실',text:'밝은 분위기를 추천합니다.'}],outro:'문의하세요',tags:[],warnings:[]};};
-  const result=await ai.generate(p.id,()=>{});assert.equal(received.cafeSource,'');assert(!JSON.stringify(received).includes('강마루'));assert(!JSON.stringify(received).includes('폴리싱'));assert(JSON.stringify(received).includes('주방 간접조명'));assert.equal(received.photos.length,4);
+  const result=await ai.generate(p.id,()=>{});assert.match(received.cafeSource,/주방에는 간접조명/);assert(!JSON.stringify(received).includes('강마루'));assert(!JSON.stringify(received).includes('폴리싱'));assert(JSON.stringify(received).includes('주방 간접조명'));assert.equal(received.photos.length,4);
   assert.equal(result.project.draftSourceSignature,draftSourceSignature(result.project,store.assets(p.id)));assert.deepEqual(result.project.blocks.filter(b=>b.kind==='photos').map(b=>b.assetIds),[['a'],['b'],['c'],['d']]);
 });
 

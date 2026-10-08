@@ -16,7 +16,9 @@ GitHub의 **Code → Download ZIP**과 **Source code**는 개발용 소스입니
 - Mac Intel: `release/Lemonhouse Blog Studio-0.1.0.dmg`
 - Windows 64비트: `release/Lemonhouse Blog Studio-0.1.0-win.zip`을 전부 풀고 `Lemonhouse Blog Studio.exe`를 실행합니다. 실행 파일만 따로 옮기지 마세요.
 
-현재 배포 파일은 개발용이며 운영체제의 배포 인증을 받지 않았습니다. Windows와 Intel Mac의 실제 기기 검증은 별도로 필요합니다.
+2026-10-08 업데이트는 Windows 실행본으로 제공합니다. 이전 Mac 실행본은 [v0.1.0 배포](https://github.com/dochchan-hash/naver-blog-auto/releases/tag/v0.1.0)에 남아 있습니다. Windows 앱의 실행과 네이버 편집기 입력을 확인했으며, 이번 업데이트의 Mac 실행본은 새로 만들지 않았습니다. 현재 배포 파일은 운영체제의 배포 인증을 받지 않은 개발용입니다.
+
+이번 업데이트에는 사진의 8개 공간 자동 분류, 보관함 제목 수정·삭제, 작성 중단, 참고 링크 변경 시 본문·서식 재분석, 질문·답변 인용구 위치·개수 설정을 포함합니다. 공간 설명 누락·반복 말투와 문장 중간 줄바꿈을 검사하며, 네이버 편집기에서 인용구·사진·설명 순서와 서식, 표지의 네이티브 1:1 편집, 추천 인테리어 카테고리·태그·예약 시각을 확인합니다. 검증 범위는 [구현 및 검증 상태](WORK_STATUS.md)를 참고하세요.
 
 ## 처음 연결하기
 
