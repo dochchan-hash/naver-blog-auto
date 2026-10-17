@@ -1,10 +1,12 @@
 const {app,BrowserWindow,shell,safeStorage,dialog}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {BrowserBridge}=require('./browser.cjs');
+const {jobNotifications}=require('./notifications.cjs');
 const projectRoot=path.resolve(__dirname,'..');
 if(process.env.LEMONHOUSE_DATA_DIR)app.setPath('userData',path.join(process.env.LEMONHOUSE_DATA_DIR,'desktop'));
 else if(!app.isPackaged)app.setPath('userData',path.join(projectRoot,'.local','desktop'));
 app.setName('Lemonhouse Blog Studio');
+if(process.platform==='win32')app.setAppUserModelId('kr.lemonhouse.blogstudio');
 let runtime,mainWindow;
 const single=app.requestSingleInstanceLock();if(!single)app.quit();
 app.on('second-instance',()=>{if(mainWindow&&!mainWindow.isDestroyed()){mainWindow.show();mainWindow.focus();}});
@@ -18,12 +20,12 @@ if(single)app.whenReady().then(async()=>{
   const {createServer}=await import(pathToFileURL(path.join(projectRoot,'server','index.mjs')).href);
   const dataDir=process.env.LEMONHOUSE_DATA_DIR||(!app.isPackaged?path.join(projectRoot,'.local'):path.join(app.getPath('userData'),'workspace'));
   const vault=createVault(dataDir);
-  runtime=await createServer({dataDir,port:0,bridge:new BrowserBridge({vault}),vault,openExternal:url=>shell.openExternal(url)});
+  runtime=await createServer({dataDir,port:0,bridge:new BrowserBridge({vault}),vault,openExternal:url=>shell.openExternal(url),onJob:jobNotifications(()=>mainWindow)});
   console.log(`레몬하우스 스튜디오: ${runtime.url}`);
   mainWindow=new BrowserWindow({width:1480,height:950,minWidth:980,minHeight:680,title:'레몬하우스 · 블로그 스튜디오',backgroundColor:'#f7f8f5',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
   mainWindow.webContents.setWindowOpenHandler(({url})=>{if(/^https:\/\//.test(url))shell.openExternal(url);return {action:'deny'};});
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(!url.startsWith(runtime.url+'/'))event.preventDefault();});
-  await mainWindow.loadURL(runtime.url);
+  await mainWindow.loadURL(runtime.url+'/');
   mainWindow.on('closed',()=>app.quit());
   app.on('activate',()=>{mainWindow?.show();});
 }).catch(error=>{dialog.showErrorBox('프로그램 실행 확인 필요',error.message);app.quit();});

@@ -1,4 +1,4 @@
-import type {Bootstrap,Project,Role,Asset,Settings,Style,Job,ComplexDetails} from '../shared/model';
+import type {Bootstrap,Project,Role,Asset,Settings,Style,PostType,Job,ComplexDetails} from '../shared/model';
 let csrf='';
 let bootstrapRequest:Promise<Bootstrap>|null=null;
 async function request<T>(path:string,options:RequestInit={}):Promise<T>{
@@ -6,12 +6,10 @@ async function request<T>(path:string,options:RequestInit={}):Promise<T>{
   if(!response.ok){const body=await response.json().catch(()=>({error:'작업을 완료하지 못했습니다.'}));throw new Error(body.error);}
   return response.json();
 }
-let naverQueue:Promise<unknown>=Promise.resolve();
-function queueNaver<T>(work:()=>Promise<T>):Promise<T>{const result=naverQueue.then(work,work);naverQueue=result.catch(()=>{});return result;}
 export const api={
   bootstrap:()=>{if(!bootstrapRequest)bootstrapRequest=request<Bootstrap>('/bootstrap').then(data=>{csrf=data.csrf;return data;}).finally(()=>{bootstrapRequest=null;});return bootstrapRequest;},
   deleteProject:(id:string)=>request<{ok:boolean}>(`/projects/${id}`,{method:'DELETE'}),
-  createProject:()=>request<Project>('/projects',{method:'POST'}),
+  createProject:(postType:PostType='recommendation')=>request<Project>('/projects',{method:'POST',body:JSON.stringify({postType})}),
   saveProject:(p:Project)=>request<Project>(`/projects/${p.id}`,{method:'PUT',body:JSON.stringify(p)}),
   upload:(id:string,role:Role,file:File,onProgress:(value:number)=>void)=>new Promise<Asset>((resolve,reject)=>{
     const xhr=new XMLHttpRequest();xhr.open('POST',`/api/projects/${id}/assets?role=${role}`);xhr.setRequestHeader('X-Lemon-CSRF',csrf);
@@ -23,21 +21,21 @@ export const api={
   }),
   patchAssets:(patches:Partial<Asset>[])=>request<{assets:Asset[]}>('/assets/batch',{method:'PATCH',body:JSON.stringify(patches)}),
   saveSettings:(settings:Settings)=>request<Settings>('/settings',{method:'PUT',body:JSON.stringify(settings)}),
-  saveStyle:(style:Style)=>request<Style>('/style',{method:'PUT',body:JSON.stringify(style)}),
+  saveStyle:(style:Style,postType:PostType='recommendation')=>request<Style>(`/style?postType=${postType}`,{method:'PUT',body:JSON.stringify(style)}),
   authStart:(newAccount=false)=>request<{url:string;opened:boolean}>('/auth/start',{method:'POST',body:JSON.stringify({newAccount})}),
   authModels:()=>request<{models:{id:string;name:string}[]}>('/auth/models',{method:'POST'}),
   authDisconnect:()=>request<Bootstrap['auth']>('/auth/disconnect',{method:'POST'}),
   login:()=>request<Bootstrap['browser']>('/naver/login',{method:'POST'}),
   naverStatus:()=>request<Bootstrap['browser']>('/naver/status',{method:'POST'}),
   changeNaverAccount:()=>request<Bootstrap['browser']>('/naver/change-account',{method:'POST'}),
-  readPost:(url:string)=>queueNaver(()=>request<{text:string;title:string;url:string}>('/naver/read-post',{method:'POST',body:JSON.stringify({url})})),
-  search:(query:string)=>queueNaver(()=>request<{results:{name:string;key?:string;url?:string;label?:string;region?:string}[]}>('/naver/search',{method:'POST',body:JSON.stringify({query})})),
-  selectComplex:(key:string)=>queueNaver(()=>request<ComplexDetails>('/naver/select-complex',{method:'POST',body:JSON.stringify({key})})),
-  complex:(url:string,type='')=>queueNaver(()=>request<ComplexDetails>('/naver/complex',{method:'POST',body:JSON.stringify({url,type})})),
-  floorplan:(projectId:string,role:Role,url:string)=>queueNaver(()=>request<Asset>('/naver/floorplan',{method:'POST',body:JSON.stringify({projectId,role,url})})),
+  readPost:(url:string)=>request<{text:string;title:string;url:string}>('/naver/read-post',{method:'POST',body:JSON.stringify({url})}),
+  search:(query:string)=>request<{results:{name:string;key?:string;url?:string;label?:string;region?:string}[]}>('/naver/search',{method:'POST',body:JSON.stringify({query})}),
+  selectComplex:(key:string)=>request<ComplexDetails>('/naver/select-complex',{method:'POST',body:JSON.stringify({key})}),
+  complex:(url:string,type='')=>request<ComplexDetails>('/naver/complex',{method:'POST',body:JSON.stringify({url,type})}),
+  floorplan:(projectId:string,role:Role,url:string)=>request<Asset>('/naver/floorplan',{method:'POST',body:JSON.stringify({projectId,role,url})}),
   cancelJob:(id:string)=>request<Job>(`/jobs/${id}/cancel`,{method:'POST'}),
-  task:(id:string,kind:string,confirmReviewed=false)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed})}),
-  refreshFormat:()=>request<Job>('/style/format',{method:'POST'}),
-  analyzeStyle:()=>request<Job>('/style/analyze',{method:'POST'}),
+  task:(id:string,kind:string,confirmReviewed:boolean,expectedRevision:number)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed,expectedRevision})}),
+  refreshFormat:(postType:PostType='recommendation')=>request<Job>('/style/format',{method:'POST',body:JSON.stringify({postType})}),
+  analyzeStyle:(postType:PostType='recommendation')=>request<Job>('/style/analyze',{method:'POST',body:JSON.stringify({postType})}),
   recordPublish:(id:string,url:string,scheduled:boolean,scheduleAt:string)=>request<Project>(`/projects/${id}/publish-result`,{method:'POST',body:JSON.stringify({url,scheduled,scheduleAt})}),
 };
