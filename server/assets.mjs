@@ -6,10 +6,12 @@ import {pipeline} from 'node:stream/promises';
 import {Transform} from 'node:stream';
 import Busboy from 'busboy';
 import sharp from 'sharp';
+import {readTemplate} from './templates.mjs';
 import {createCanvas,DOMMatrix,ImageData,Path2D} from '@napi-rs/canvas';
 globalThis.DOMMatrix ||= DOMMatrix;globalThis.ImageData ||= ImageData;globalThis.Path2D ||= Path2D;
 const fileError=message=>Object.assign(new Error(message),{status:400});
 export function detectMime(head) {
+  if(head.length>=6&&head.subarray(0,4).toString()==='8BPS'&&head.readUInt16BE(4)===1)return 'image/vnd.adobe.photoshop';
   if(head.subarray(0,5).toString()==='%PDF-')return 'application/pdf';
   if(head[0]===0xff&&head[1]===0xd8&&head[2]===0xff)return 'image/jpeg';
   if(head.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return 'image/png';
@@ -34,7 +36,8 @@ export class Assets {
   }
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
-    if(!['photo','construction','floorplan-original','floorplan-target'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(!['photo','construction','floorplan-original','floorplan-target','template'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(role==='template'&&this.store.get('project',projectId).postType!=='case')throw fileError('PSD 템플릿은 시공사례에 첨부해 주세요.');
     const id=randomUUID(),folder=this.resolve(id);await fsp.mkdir(folder,{mode:0o700});
     const dest=path.join(folder,'original');let filename,bytes=0,hash,head=Buffer.alloc(0),work,error;
     try {
@@ -44,7 +47,7 @@ export class Assets {
         bb.on('file',(_,file,info)=>{
           if(seen){file.resume();error=fileError('파일을 한 개씩 전송해 주세요.');return;}seen=true;filename=path.basename(info.filename||'첨부파일');
           const sha=createHash('sha256');
-          const meter=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;sha.update(chunk);if(head.length<16)head=Buffer.concat([head,chunk]).subarray(0,16);cb(null,chunk);}});
+          const meter=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;if(role==='template'&&bytes>64*1024*1024)return cb(fileError('PSD 템플릿은 64MB 이하로 선택해 주세요.'));sha.update(chunk);if(head.length<16)head=Buffer.concat([head,chunk]).subarray(0,16);cb(null,chunk);}});
           work=pipeline(file,meter,fs.createWriteStream(dest,{mode:0o600})).then(()=>{hash=sha.digest('hex');}).catch(e=>{error=e;});
         });
         bb.on('filesLimit',()=>{error=fileError('파일을 한 개씩 전송해 주세요.');});
@@ -52,13 +55,22 @@ export class Assets {
         bb.on('close',async()=>{await work;if(error)return reject(error);if(!seen||!bytes)return reject(fileError('빈 파일은 첨부할 수 없습니다.'));resolve();});req.pipe(bb);
       });
       const mime=detectMime(head);
-      if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF 파일을 선택해 주세요.');
+      if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD 파일을 선택해 주세요.');
+      if((role==='template')!==(mime==='image/vnd.adobe.photoshop'))throw fileError(role==='template'?'PSD 템플릿 파일을 선택해 주세요.':'PSD는 시공사례 템플릿 영역에 첨부해 주세요.');
       if(role==='construction'&&!['application/pdf','image/jpeg'].includes(mime))throw fileError('공사시공내역은 PDF 또는 JPG 파일을 선택해 주세요.');
       if(role==='photo'&&mime==='application/pdf')throw fileError('현장 사진 영역에는 이미지 파일을 넣어 주세요.');
-      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf'}[mime];
+      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd'}[mime];
       const originalPath=`${id}/original.${extension}`;await fsp.rename(dest,this.resolve(originalPath));
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
       const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:'미분류',group:'',order:existing.length,excluded:false};
+      if(role==='template'){
+        const template=readTemplate(await fsp.readFile(this.resolve(originalPath))),previewPath=`${id}/preview.jpg`;
+        const board=template.psd.children.find(l=>l.artboard)?.artboard?.rect;
+        let image=sharp(template.psd.canvas.toBuffer('image/png'));if(board)image=image.extract({left:board.left,top:board.top,width:board.right-board.left,height:board.bottom-board.top});
+        await image.resize({width:1000,height:1000,fit:'inside'}).jpeg({quality:85}).toFile(this.resolve(previewPath));
+        Object.assign(asset,{projectId:'templates',templateKind:template.kind,status:'ready',previewPath});
+        this.store.put('asset',id,asset);const key=`${template.kind}TemplateId`;this.store.put('templates','main',{...this.store.get('templates','main'),[key]:id});this.store.updateProject(projectId,{[key]:id});return this.store.asset(id);
+      }
       this.store.put('asset',id,asset);
       this.queue=this.queue.then(()=>this.process(id)).catch(()=>{});
       return this.store.asset(id);

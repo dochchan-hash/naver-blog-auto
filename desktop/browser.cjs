@@ -4,7 +4,7 @@ async function snapshotClipboard(api=clipboard,Item=ClipboardItem){const items=a
 class BrowserBridge {
   constructor({vault}={}){this.window=null;this.busy=false;this.publishVerified=false;this.vault=vault;this.credentials=vault?.get('naver')||null;this.expectedBlogId='';this.captureTimer=null;}
   get available(){return true;}
-  async open(url='https://blog.naver.com/MyBlog.naver',{visible=true}={}){
+  async open(url='https://blog.naver.com/MyBlog.naver',{visible=true,loadTimeout=30000}={}){
     if(!this.window||this.window.isDestroyed()){
       this.window=new BrowserWindow({width:1180,height:860,show:visible,title:'네이버 · 레몬하우스 스튜디오',webPreferences:{partition:'persist:naver',nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});
       if(this.credentials){for(const cookie of this.credentials.cookies||[]){const protocol=cookie.secure?'https':'http';const domain=cookie.domain.replace(/^\./,'');const {hostOnly,session,...value}=cookie;try{await this.window.webContents.session.cookies.set({...value,url:`${protocol}://${domain}${cookie.path||'/'}`});}catch{}}}
@@ -18,7 +18,18 @@ class BrowserBridge {
       const window=this.window;window.on('close',()=>{this.publishVerified=false;});
       this.window.on('closed',()=>{clearTimeout(this.captureTimer);session.cookies.off('changed',this.cookieListener);this.window=null;});
     }
-    if(visible)this.window.show();if(url){try{await this.window.loadURL(url);}catch(error){if(error.errno!==-3&&error.code!=='ERR_ABORTED')throw error;}}return this;
+    if(visible)this.window.show();if(url){
+      const window=this.window,signal=this.operationSignal;let timer,closed,abort;
+      const interrupted=new Promise((_,reject)=>{
+        const stop=error=>{try{window.webContents?.stop?.();}catch{}reject(error);};
+        timer=setTimeout(()=>stop(new Error('네이버 페이지를 여는 시간이 초과되었습니다. 네트워크와 로그인 상태를 확인한 뒤 다시 시도해 주세요.')),loadTimeout);
+        closed=()=>stop(new Error('네이버 창이 닫혀 작업을 중단했습니다. 준비 버튼으로 다시 열 수 있습니다.'));
+        abort=()=>stop(signal.reason);window.once?.('closed',closed);
+        if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
+      });
+      try{await Promise.race([window.loadURL(url),interrupted]);}catch(error){if(error.errno!==-3&&error.code!=='ERR_ABORTED')throw error;}
+      finally{clearTimeout(timer);window.off?.('closed',closed);signal?.removeEventListener('abort',abort);}
+    }return this;
   }
   allowed(url){try{const u=new URL(url);return u.protocol==='https:'&&(u.hostname==='naver.com'||u.hostname.endsWith('.naver.com'));}catch{return false;}}
   async goto(url){if(!this.allowed(url))throw new Error('네이버 HTTPS 화면만 열 수 있습니다.');await this.open(url,{visible:false});}
@@ -40,7 +51,24 @@ class BrowserBridge {
     finally{this.switching=false;this.busy=false;}
   }
   reveal(){if(this.window&&!this.window.isDestroyed()){this.window.show();this.window.focus();}}
-  async exclusive(fn){if(this.busy)throw Object.assign(new Error('네이버 화면에서 다른 작업이 진행 중입니다.'),{status:409});this.busy=true;try{return await fn();}finally{this.busy=false;}}
+  async exclusive(fn,{signal,waitMs=120000}={}){
+    let timer,abort,started=false,waitingError;
+    const waiting=new Promise((_,reject)=>{
+      const stop=error=>{waitingError=error;reject(error);};
+      timer=setTimeout(()=>stop(Object.assign(new Error('앞선 네이버 작업의 대기 시간이 초과되었습니다. 진행 중인 작업을 중단한 뒤 다시 시도해 주세요.'),{status:409})),waitMs);
+      abort=()=>{if(!started)stop(signal.reason||new Error('네이버 작업 대기를 중단했습니다.'));};
+      if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
+    });
+    const queued=(this.queue||Promise.resolve()).then(async()=>{
+      started=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);
+      if(waitingError)throw waitingError;
+      signal?.throwIfAborted();
+      if(this.busy)throw Object.assign(new Error('네이버 계정 변경이 진행 중입니다. 완료 후 다시 시도해 주세요.'),{status:409});
+      this.busy=true;this.operationSignal=signal;try{return await fn();}finally{this.busy=false;this.operationSignal=undefined;}
+    });
+    this.queue=queued.catch(()=>{});
+    try{return await Promise.race([queued,waiting]);}finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+  }
   async frame(selector,urlContains=''){
     if(!this.window||this.window.isDestroyed())throw Object.assign(new Error('설정에서 네이버 연결을 열고 로그인해 주세요.'),{status:401});
     for(const f of this.window.webContents.mainFrame.framesInSubtree){try{if(await f.executeJavaScript(`Boolean(document.querySelector(${JSON.stringify(selector)})) && location.href.includes(${JSON.stringify(urlContains)})`))return f;}catch{}}
@@ -83,6 +111,7 @@ class BrowserBridge {
   }
   async focusText(selector,{last=true,selectAll=false}={}){
     this.reveal();
+    await this.click('button.se-sidebar-close-button,button[title="팝업 닫기"],button[aria-label="팝업 닫기"]',{optional:true});
     const box=await this.evaluate(({selector,last,selectAll})=>{
       const nodes=[...document.querySelectorAll(selector)].filter(e=>e.getBoundingClientRect().width>0),node=last?nodes.at(-1):nodes[0];
       if(!node)throw new Error('본문 입력란을 찾지 못했습니다.');node.scrollIntoView({block:'center'});const r=node.getBoundingClientRect();
@@ -101,10 +130,10 @@ class BrowserBridge {
   }
   async appendParagraph(){
     this.reveal();
-    const tail=await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail]').forEach(e=>delete e.dataset.lemonTail);const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);if(!c)return null;c.dataset.lemonTail='true';const p=c.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;return {text:!!p,empty:![...p?.querySelectorAll('.__se-node')||[]].map(n=>n.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'')};},null,{selector:'.se-title-text'});
+    const tail=await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(e=>{delete e.dataset.lemonTail;delete e.dataset.lemonTailParagraph;});const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);if(!c)return null;c.dataset.lemonTail='true';const p=c.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(p)p.dataset.lemonTailParagraph='true';return {text:!!p,empty:![...p?.querySelectorAll('.__se-node')||[]].map(n=>n.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'')};},null,{selector:'.se-title-text'});
     if(!tail)throw new Error('본문 끝 입력 위치를 찾지 못했습니다.');
     if(tail.text){
-      await this.focusText('[data-lemon-tail="true"] .se-text-paragraph:last-child',{last:false});
+      await this.focusText('[data-lemon-tail-paragraph="true"]',{last:false});
       // The pointer must land at the final character: SmartEditor remembers
       // that position even when a programmatic DOM selection moves elsewhere.
       await this.key('End');
@@ -115,8 +144,8 @@ class BrowserBridge {
       if(cite){await this.focusText('[data-lemon-tail="true"] .se-cite .se-text-paragraph',{last:false});await this.key('End');await this.key('ArrowDown',{modifiers:[process.platform==='darwin'?'meta':'control']});await this.key('ArrowDown');await this.key('Return');}
       else{await this.clickNative('[data-lemon-tail="true"] .se-component-content');await this.key('ArrowDown');await this.key('Return');}
     }
-    await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail]').forEach(c=>delete c.dataset.lemonTail);},null,{selector:'.se-title-text'});
-    const until=Date.now()+3000;let ready=false;do{ready=await this.evaluate(()=>{const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);const p=c?.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(!p)return false;p.dataset.lemonInsertion='true';return true;},null,{selector:'.se-title-text'});if(ready)break;await sleep(100);}while(Date.now()<until);
+    await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(c=>{delete c.dataset.lemonTail;delete c.dataset.lemonTailParagraph;});},null,{selector:'.se-title-text'});
+    const until=Date.now()+3000;let ready=false;do{ready=await this.evaluate(()=>{const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);const p=c?.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(!p||[...p.querySelectorAll('.__se-node')].some(n=>n.textContent.replace(/[\s\u200B\uFEFF]/g,'')))return false;p.dataset.lemonInsertion='true';return true;},null,{selector:'.se-title-text'});if(ready)break;await sleep(100);}while(Date.now()<until);
     if(!ready)throw new Error('인용구·구분선·사진 뒤에 본문 입력 위치를 만들지 못했습니다.');
     await this.focusText('[data-lemon-insertion="true"]',{last:false});await this.key('End');await this.evaluate(()=>{document.querySelectorAll('[data-lemon-insertion]').forEach(p=>delete p.dataset.lemonInsertion);},null,{selector:'.se-title-text'});
   }

@@ -1,7 +1,14 @@
+import {templateFields} from './template-fields.mjs';
 export function sourceSignature(project,assets){
   return JSON.stringify({cafeUrl:project.cafeUrl,sourceText:project.sourceText,files:assets.filter(a=>a.role==='construction'&&!a.excluded).map(a=>({id:a.id,hash:a.hash})).sort((a,b)=>a.id.localeCompare(b.id)),facts:project.facts.map(f=>({id:f.id,space:f.space,item:f.item,sourceAssetId:f.sourceAssetId,uncertain:f.uncertain,confirmed:f.confirmed}))});
 }
-export function needsSourceCheck(project,assets){return !!project.sourceText.trim()&&assets.some(a=>a.role==='construction'&&!a.excluded);}
+export function templateSourceSignature(project,assets){
+  const photos=assets.filter(a=>a.role==='photo'&&!a.excluded&&!a.templateOutput).sort((a,b)=>a.order-b.order),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos[0];
+  const plan=assets.find(a=>a.id===project.original.floorplanAssetId);
+  const fields=templateFields(project,assets);
+  return JSON.stringify({cafe:[project.cafeUrl,project.sourceText],fields:project.scopeTemplateId?fields:{coverTitle:fields.coverTitle,coverConcept:fields.coverConcept},photo:photo?.id,photoHash:photo?.hash,cover:project.coverTemplateId,scope:project.scopeTemplateId,plan:plan?.hash});
+}
+export function needsSourceCheck(project,assets){return !!project.sourceText.trim()&&(project.postType==='case'||assets.some(a=>a.role==='construction'&&!a.excluded));}
 export function sourceReviewCurrent(project,assets){return !!project.sourceReview&&project.sourceReview.signature===sourceSignature(project,assets);}
 export function draftSourceSignature(project,assets){return JSON.stringify({source:sourceSignature(project,assets),decisions:sourceReviewCurrent(project,assets)?project.sourceReview.conflicts.map(c=>({id:c.id,decision:c.decision,text:c.customText})):null,original:[project.original.name,project.original.region,project.original.type,project.original.supplyArea,project.original.exclusiveArea,project.original.floorplanAssetId],target:[project.target.name,project.target.region,project.target.type,project.target.supplyArea,project.target.exclusiveArea,project.target.floorplanAssetId],...(project.coverAssetId?{coverAssetId:project.coverAssetId}:{}),...(project.questionQuote&&project.questionQuote!=='none'?{questions:{position:project.questionQuote,count:project.questionQuoteCount||1}}:{}),manual:project.manualWork,concept:project.concept,comparison:project.comparison?.reviewed?project.comparison:null,photos:assets.filter(a=>a.role==='photo'&&!a.excluded).sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id)).map(a=>({id:a.id,hash:a.hash,space:a.space,group:a.group,order:a.order}))});}
 export function refreshedPhotoLayoutSignature(project,assets){

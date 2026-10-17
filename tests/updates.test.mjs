@@ -13,7 +13,8 @@ test('사진을 8개 공간으로 분석하고 분석 도중 수정한 공간·�
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-updates-')),store=new Store(dir);
   t.after(async()=>{store.close();await fs.rm(dir,{recursive:true,force:true});});
   assert.deepEqual(SPACES,['현관','거실','주방','안방','안방욕실','작은방1','작은방2','공용욕실']);
-  const photo={id:'photo',role:'photo',status:'ready',space:'미분류',hash:'one',filename:'작은방2.jpg',group:''};store.put('asset',photo.id,photo);
+  const p=store.createProject();
+  const photo={id:'photo',projectId:p.id,role:'photo',status:'ready',space:'미분류',hash:'one',filename:'작은방2.jpg',group:''};store.put('asset',photo.id,photo);
   const ai=new AI(store,{}, {imageData:async()=> 'data:image/jpeg;base64,AA'},{});
   ai.call=async()=>({space:'작은방2',description:'밝은 작은방',uncertain:false});
   await ai.analyzeAsset(photo);assert.equal(store.get('asset','photo').space,'작은방2');

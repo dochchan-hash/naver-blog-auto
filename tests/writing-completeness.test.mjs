@@ -5,7 +5,7 @@ const result=()=>({title:'추천 인테리어',intro:'편안한 공간을 제안
 test('글씨와 내용이 같아도 마지막 문장 중간의 불필요한 문단 분리는 거부한다',()=>{
   const text='도기와 수전, 액세서리는 사용 편의와 청소 동선을 함께 살펴 선택해 보세요.',style=REFERENCE_FORMAT.body;
   const paragraph=text=>({text,align:style.align,spans:[{text,fontSize:style.fontSize+'px',fontWeight:String(style.fontWeight),fontFamily:style.fontFamily,color:style.color,backgroundColor:style.backgroundColor}]});
-  const project={blocks:[{kind:'text',text},{kind:'divider',variant:'line4'}],formatProfile:REFERENCE_FORMAT},state={components:[{class:'se-component se-text',text},{class:'se-component se-horizontalLine se-l-line4',text:''}],paragraphs:[paragraph(text)]};
+  const project={blocks:[{kind:'text',text},{kind:'divider',variant:'line4'}],formatProfile:REFERENCE_FORMAT},state={components:[{class:'se-component se-text',text},{class:'se-component se-horizontalLine se-l-line4',text:'',align:'center',centered:true}],paragraphs:[paragraph(text)]};
   assert(editorFormatMatches(project,state));state.paragraphs.push({text:'출처 입력',align:'center',spans:[]});assert(editorFormatMatches(project,state),'인용구 출처 안내 문구는 원고로 세지 않습니다.');state.paragraphs=[paragraph('도기와 수전, 액세서리는 사용 편의와 '),paragraph('청소 동선을 함께 살펴 선택해 보세요.')];assert(!editorFormatMatches(project,state));
   project.blocks[0].text='도기와 수전, 액세서리는 사용 편의와\n청소 동선을 함께 살펴 선택해 보세요.';assert(editorFormatMatches(project,state),'원고에 사용자가 넣은 줄바꿈은 유지합니다.');
 });
