@@ -62,7 +62,8 @@
       "server/**",
       "shared/**",
       "desktop/**",
-      "package.json"
+      "package.json",
+      "!**/.v8-cache/**"
     ],
     "asarUnpack": [
       "node_modules/@napi-rs/**",
