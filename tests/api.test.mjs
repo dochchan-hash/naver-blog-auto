@@ -36,3 +36,15 @@ test('선택한 타입·도면·자료 처리 방식은 저장 후 복구되고 
   res=await fetch(runtime.url+`/api/projects/${p.id}`,{method:'PUT',headers,body:JSON.stringify({...p,target:{...p.target,floorplanAssetId:'plan'}})});assert.equal(res.status,400);
   const wrong=structuredClone(p);wrong.sourceReview.conflicts[0].cafeFactIndexes=[5];res=await fetch(runtime.url+`/api/projects/${p.id}`,{method:'PUT',headers,body:JSON.stringify(wrong)});assert.equal(res.status,400);
 });
+
+test('네이버 준비는 화면에서 저장한 버전과 일치하는 원고의 수정 순서를 사용한다',async t=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemonhouse-revision-')),changes=[],runtime=await createServer({dataDir:dir,port:0,bridge:{},onJob:job=>changes.push(job)});
+  t.after(async()=>{await runtime.close();await fs.rm(dir,{recursive:true,force:true});});
+  const init=await fetch(runtime.url+'/api/bootstrap'),data=await init.json(),cookie=init.headers.get('set-cookie').split(';')[0],headers={cookie,'X-Lemon-CSRF':data.csrf,'Content-Type':'application/json',Origin:runtime.url},p=data.projects[0];
+  const blocks=[{id:'quote',kind:'quote',text:'현관',space:'현관'},{id:'intro',kind:'text',text:'직접 옮긴 도입'},{id:'description',kind:'text',space:'현관',text:'직접 수정한 설명'},{id:'divider',kind:'divider'}];
+  const response=await fetch(runtime.url+`/api/projects/${p.id}`,{method:'PUT',headers,body:JSON.stringify({...p,blocks})}),saved=await response.json();assert.equal(response.status,200);
+  let received;runtime.naver.publish=async id=>{received=runtime.store.get('project',id);return {prepared:true};};
+  const prepare=expectedRevision=>fetch(runtime.url+`/api/projects/${p.id}/tasks/prepare`,{method:'POST',headers,body:JSON.stringify({expectedRevision})});
+  let result=await prepare(p.revision);assert.equal(result.status,409);assert.equal(received,undefined);assert.match((await result.json()).error,/저장된 원고가 일치하지/);
+  result=await prepare(saved.revision);assert.equal(result.status,202);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(received.blocks,blocks);assert.equal(received.revision,saved.revision);assert.equal(changes.at(-1).status,'completed');
+});

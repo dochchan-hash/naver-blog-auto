@@ -36,7 +36,7 @@ export const api={
   complex:(url:string,type='')=>queueNaver(()=>request<ComplexDetails>('/naver/complex',{method:'POST',body:JSON.stringify({url,type})})),
   floorplan:(projectId:string,role:Role,url:string)=>queueNaver(()=>request<Asset>('/naver/floorplan',{method:'POST',body:JSON.stringify({projectId,role,url})})),
   cancelJob:(id:string)=>request<Job>(`/jobs/${id}/cancel`,{method:'POST'}),
-  task:(id:string,kind:string,confirmReviewed=false)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed})}),
+  task:(id:string,kind:string,confirmReviewed:boolean,expectedRevision:number)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed,expectedRevision})}),
   refreshFormat:()=>request<Job>('/style/format',{method:'POST'}),
   analyzeStyle:()=>request<Job>('/style/analyze',{method:'POST'}),
   recordPublish:(id:string,url:string,scheduled:boolean,scheduleAt:string)=>request<Project>(`/projects/${id}/publish-result`,{method:'POST',body:JSON.stringify({url,scheduled,scheduleAt})}),
