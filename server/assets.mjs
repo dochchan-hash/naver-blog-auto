@@ -37,7 +37,7 @@ export class Assets {
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
     if(!['photo','construction','floorplan-original','floorplan-target','template'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
-    if(role==='template'&&this.store.get('project',projectId).postType!=='case')throw fileError('PSD 템플릿은 시공사례에 첨부해 주세요.');
+    if(role==='template'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('PSD 템플릿은 시공사례 또는 마감에 첨부해 주세요.');
     const id=randomUUID(),folder=this.resolve(id);await fsp.mkdir(folder,{mode:0o700});
     const dest=path.join(folder,'original');let filename,bytes=0,hash,head=Buffer.alloc(0),work,error;
     try {
@@ -64,11 +64,14 @@ export class Assets {
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
       const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:'미분류',group:'',order:existing.length,excluded:false};
       if(role==='template'){
-        const template=readTemplate(await fsp.readFile(this.resolve(originalPath))),previewPath=`${id}/preview.jpg`;
+        const template=readTemplate(await fsp.readFile(this.resolve(originalPath)),{unmapped:this.store.get('project',projectId)?.postType==='completion'}),previewPath=`${id}/preview.jpg`;
         const board=template.psd.children.find(l=>l.artboard)?.artboard?.rect;
         let image=sharp(template.psd.canvas.toBuffer('image/png'));if(board)image=image.extract({left:board.left,top:board.top,width:board.right-board.left,height:board.bottom-board.top});
         await image.resize({width:1000,height:1000,fit:'inside'}).jpeg({quality:85}).toFile(this.resolve(previewPath));
         Object.assign(asset,{projectId:'templates',templateKind:template.kind,status:'ready',previewPath});
+        if(template.kind==='completion'){
+          asset.projectId='completion-templates';const p=this.store.get('project',projectId),slots=p.completionTemplates||[];if(slots.length>=100)throw fileError('마감 템플릿은 최대 100개까지 등록할 수 있습니다.');this.store.put('asset',id,asset);this.store.updateProject(projectId,{completionTemplates:[...slots,{id:randomUUID(),name:filename.replace(/\.psd$/i,''),position:'space',space:'거실',templateId:id,text:'',photoIds:[]}]});return this.store.asset(id);
+        }
         this.store.put('asset',id,asset);const key=`${template.kind}TemplateId`;this.store.put('templates','main',{...this.store.get('templates','main'),[key]:id});this.store.updateProject(projectId,{[key]:id});return this.store.asset(id);
       }
       this.store.put('asset',id,asset);

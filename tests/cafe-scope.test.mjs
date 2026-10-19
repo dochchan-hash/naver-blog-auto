@@ -31,7 +31,7 @@ test('카페 이미지 주소는 HTTPS 네이버 CDN만 허용한다',()=>{
 });
 test('카페의 요청한 글 번호를 기다리고 사진 목록이 안정된 다음 원문을 읽는다',async()=>{
   let observations=0;const checks=[];
-  const bridge={goto:async()=>{},waitFor:async(_,timeout,options)=>checks.push(options),evaluate:async(_,arg,options)=>{checks.push(options);return {text:'공사범위가 포함된 카페 본문',images:++observations<3?['loading.jpg']:['ready.jpg','scope.jpg']};}};
+  const bridge={goto:async()=>{},waitFor:async(_,timeout,options)=>checks.push(options),evaluate:async(fn,arg,options)=>{checks.push(options);if(fn.name==='readReferenceFormat')return null;return {text:'공사범위가 포함된 카페 본문',images:++observations<3?['loading.jpg']:['ready.jpg','scope.jpg']};}};
   const result=await new Naver({}, {},bridge).readPostPage('https://cafe.naver.com/example/17729');
   assert(checks.every(c=>c.urlContains==='17729'));assert.equal(observations,6);assert.deepEqual(result.images,['ready.jpg','scope.jpg']);assert.equal(result.formatProfile,null);
 });

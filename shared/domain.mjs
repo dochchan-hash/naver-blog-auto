@@ -11,13 +11,17 @@ export const DEFAULT_SETTINGS = {blogId: '', brand: '레몬하우스', phone: '1
 function emptySite() { return {name:'', region:'', type:'', supplyArea:'', exclusiveArea:'', sourceUrl:''}; }
 export const CASE_SPACES=[...SPACES,'복도','알파룸','드레스룸'];
 export const DEFAULT_CASE_STYLE={name:'레몬하우스 시공사례',referenceUrls:['224418954497','224408307594','224406227010','224405900018','224403861966'].map(id=>`https://blog.naver.com/link_design_studio/${id}`),status:'reference',rules:'실제로 시공한 한 현장의 시공사례를 소개합니다. 편집한 표지 → 콘셉트를 소개하는 인용구 → 브랜드 인사와 현장 소개 → INTERIOR PLAN 도면 이미지 → 공간별 영문·한글 제목 인용구 → 사진 묶음 → 확인된 시공 설명 → 마무리 → 구분선 → 브랜드·문의 연락처 순서입니다. 본문은 왼쪽 정렬, 나눔바른고딕 15px, 공간 제목은 밑줄형 인용구로 영문 나눔명조 19px와 한글 나눔고딕 13px를 사용합니다. 사진이 있는 공간만 쓰며 실제 시공 요소와 디자인 효과를 설명하고 다양한 제안 어미를 섞습니다. 참고글의 현장명·오타·편집 메모는 복사하지 않습니다.'};
-export function postLabel(project){return project.postType==='case'?'시공사례':'추천글';}
-export function postSite(project){return project.postType==='case'?project.original:project.target;}
-export function postSpaces(project){return project.postType==='case'?CASE_SPACES:SPACES;}
+export const COMPLETION_SPACES=['현관','복도','거실','주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','공용욕실','알파룸','베란다'];
+export const DEFAULT_COMPLETION_STYLE={name:'레몬하우스 카페 마감',referenceUrls:['18165','18124','18093','18060','17985'].map(id=>`https://cafe.naver.com/fmbsno1/${id}`),status:'reference',rules:'네이버 카페에 실제 공사 완료 현장을 소개하는 마감 게시글입니다. 표지 → 브랜드 인사와 현장 소개 → 공사범위 → BEFORE & AFTER 시공 전후 이미지 → 공간별 세로선 인용구 제목 → 공간 포인트 이미지와 번호별 시공 포인트 설명 → 현장 사진 묶음 → 공간 종합 설명 → 마무리 인사와 문의 연락처 → 마무리 이미지 순서입니다. 본문은 왼쪽 정렬 15px 검정, 공간 제목은 왼쪽 정렬 19px 세로선 인용구, 구분선은 line5를 사용합니다. 확인된 시공내역만 사용하고 각 공간 설명은 최대 7줄입니다. 다양한 자연스러운 권유와 설명 어미를 섞습니다. 사진이 있는 공간만 쓰고 다른 현장명·주소·오타는 복사하지 않습니다.'};
+export function styleKey(postType){return postType==='completion'?'completion':postType==='case'?'case':'main';}
+export function postLabel(project){return project.postType==='completion'?'마감':project.postType==='case'?'시공사례':'추천글';}
+export function postSite(project){return project.postType&&project.postType!=='recommendation'?project.original:project.target;}
+export function postSpaces(project){return project.postType==='completion'?COMPLETION_SPACES:project.postType==='case'?CASE_SPACES:SPACES;}
+export function photoSpaces(project){return [...postSpaces(project),...(project.postType==='case'?['표지','도면']:project.postType==='completion'?['표지','공사범위','시공전후','마무리']:[])];}
 export function publicationCategory(project){return project.postType==='case'?project.category||'':'추천 인테리어';}
 export function newProject(id = crypto.randomUUID(),postType='recommendation') {
   const now = new Date().toISOString();
-  return {id, revision:0,postType,...(postType==='case'?{category:''}:{}), name:postType==='case'?'새 시공사례':'새 추천글', phase:'site', original:emptySite(), target:emptySite(), manualWork:'', cafeUrl:'', sourceText:'', concept:'', keywords:[{term:'',min:7,max:8}], title:'', blocks:[], tags:[], facts:[], comparison:null, questionQuote:'none',publishMode:'review',visibility:'public', scheduleAt:'', updatedAt:now, createdAt:now, draftStatus:'empty', generationWarnings:[]};
+  return {id, revision:0,postType,...(postType==='case'?{category:''}:{}),...(postType==='completion'?{cafeTargetUrl:'https://cafe.naver.com/fmbsno1',cafeBoardUrl:'',completionTemplates:[['표지','cover'],['공사범위','scope'],['시공 전후','beforeAfter'],['공간별 포인트','space'],['마무리','closing']].map(([name,position],i)=>({id:id+'-template-'+i,name,position,space:'거실',templateId:'',text:'',photoIds:[]}))}:{}), name:`새 ${postLabel({postType})}`, phase:'site', original:emptySite(), target:emptySite(), manualWork:'', cafeUrl:'', sourceText:'', concept:'', keywords:[{term:'',min:7,max:8}], title:'', blocks:[], tags:[], facts:[], comparison:null, questionQuote:'none',publishMode:'review',visibility:'public', scheduleAt:'', updatedAt:now, createdAt:now, draftStatus:'empty', generationWarnings:[]};
 }
 export function bodyText(project) { return project.blocks.filter(b => ['text','heading','quote'].includes(b.kind)).map(b => b.text || '').join('\n'); }
 export function countOccurrences(text, term) {
@@ -60,6 +64,7 @@ export function photoGroups(assets,coverId='',templatePhotoId='') {
 }
 export function isPlanCollage(project,block,assets){return project.postType==='case'&&block.kind==='photos'&&block.space==='도면'&&block.assetIds?.length===2&&block.assetIds[0]===project.templatePhotoId&&assets.some(a=>a.id===block.assetIds[1]&&a.templateOutput==='scope'&&!a.excluded);}
 export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID()){
+  if(project.postType==='completion')return completionPhotoLayout(project,assets,createId);
   const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:''),format=formatFor(project),blocks=[],used=new Set();
   const add=space=>{if(used.has(space))return;used.add(space);groups.filter(g=>g.space===space).forEach(g=>blocks.push({id:createId(),kind:'photos',space,assetIds:g.assets.map(a=>a.id)}));};
   if(project.coverAssetId)blocks.push({id:createId(),kind:'photos',space:'표지',assetIds:[project.coverAssetId]});else add('표지');
@@ -74,6 +79,31 @@ export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID(
   blocks.splice(outro<0?blocks.length:outro,0,...newBlocks);
   return referenceStructure({...project,blocks},format);
 }
+function completionPhotoLayout(project,assets,createId){
+  const groups=photoGroups(assets,project.coverAssetId),remaining=new Map();
+  for(const group of groups){if(!remaining.has(group.space))remaining.set(group.space,[]);remaining.get(group.space).push(group);}
+  const cover=assets.find(a=>a.id===project.coverAssetId&&!a.excluded);if(cover)remaining.set('표지',[{space:'표지',assets:[cover]}]);
+  const photo=group=>({id:createId(),kind:'photos',space:group.space,assetIds:group.assets.map(a=>a.id)}),blocks=[];
+  for(const [index,block] of project.blocks.entries()){
+    if(block.kind!=='photos'){blocks.push(block);continue;}
+    const queued=remaining.get(block.space)||[],group=queued.shift();if(group)blocks.push({...photo(group),id:block.id});
+    if(!project.blocks.slice(index+1).some(b=>b.kind==='photos'&&b.space===block.space))blocks.push(...queued.splice(0).map(photo));
+  }
+  for(const [space,queued] of remaining){
+    if(!queued.length)continue;
+    const photos=queued.map(photo);
+    if(space==='표지'){blocks.unshift(...photos);continue;}
+    if(space==='마무리'){blocks.push(...photos);continue;}
+    if(['공사범위','시공전후'].includes(space)){
+      const first=blocks.findIndex(b=>b.space&&['quote','heading'].includes(b.kind));
+      blocks.splice(first<0?blocks.length:first,0,...(space==='시공전후'?[{id:createId(),kind:'quote',text:'BEFORE & AFTER',variant:'quotation_corner'}]:[]),...photos);continue;
+    }
+    const heading=blocks.findIndex(b=>b.space===space&&['quote','heading'].includes(b.kind));
+    if(heading>=0)blocks.splice(heading+1,0,...photos);
+    else{const closing=blocks.findIndex(b=>b.formatRole==='closing');blocks.splice(closing<0?blocks.length:closing,0,{id:createId(),kind:'quote',space,text:space,variant:'quotation_line'},...photos,{id:createId(),kind:'text',space,text:''});}
+  }
+  return blocks;
+}
 export function missingSpaceDescriptions(project,assets){
   return [...new Set(photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'').map(g=>g.space))].filter(s=>postSpaces(project).includes(s)).filter(space=>{
     const start=project.blocks.findIndex(b=>b.space===space&&['heading','quote'].includes(b.kind));
@@ -84,8 +114,8 @@ export function missingSpaceDescriptions(project,assets){
 export function draftWarnings(project,assets) {
   const warnings=[];
   if(project.templateWarning)warnings.push(project.templateWarning);
-  if(!project.original.name.trim()||project.postType!=='case'&&!project.target.name.trim())warnings.push(project.postType==='case'?'시공 현장을 입력해 주세요.':'원본 현장과 추천 현장을 입력해 주세요.');
-  if((project.postType==='case'?[project.original]:[project.original,project.target]).some(site=>site.details&&!site.type))warnings.push('조회한 아파트의 실제 평형·타입을 선택해 주세요.');
+  if(!project.original.name.trim()||(!project.postType||project.postType==='recommendation')&&!project.target.name.trim())warnings.push(project.postType&&project.postType!=='recommendation'?'시공 현장을 입력해 주세요.':'원본 현장과 추천 현장을 입력해 주세요.');
+  if((project.postType&&project.postType!=='recommendation'?[project.original]:[project.original,project.target]).some(site=>site.details&&!site.type))warnings.push('조회한 아파트의 실제 평형·타입을 선택해 주세요.');
   if(project.postType==='case'&&!publicationCategory(project))warnings.push('시공사례의 발행 카테고리를 선택해 주세요.');
   if(project.postType==='case'&&project.coverTemplateId){const signature=templateSourceSignature(project,assets);if(['cover',...(project.scopeTemplateId?['scope']:[])].some(kind=>!assets.some(a=>a.templateOutput===kind&&!a.excluded&&a.templateSignature===signature&&a.status==='ready')))warnings.push('현장명·사진·시공내용이 바뀌었습니다. 템플릿 이미지를 다시 만들어 주세요.');}
   if(!project.title.trim()||!bodyText(project).trim())warnings.push('제목과 본문이 필요합니다.');
@@ -95,7 +125,7 @@ export function draftWarnings(project,assets) {
     if(!block.assetIds?.length)warnings.push('빈 사진 묶음이 있습니다.');
     for(const id of block.assetIds||[]){const a=byId.get(id);if(!a||a.role!=='photo'||a.excluded)warnings.push('본문에 사용할 수 없는 사진이 있습니다.');if(isPlanCollage(project,block,assets)&&id===project.templatePhotoId)continue;if(seen.has(id))warnings.push('같은 사진이 본문에 중복 배치되어 있습니다.');seen.add(id);}
   }
-  const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'');const order=[...new Set([...(project.postType==='case'?['도면']:[]),...referenceSpaceOrder(formatFor(project)),...postSpaces(project)])];const intended=[...(project.coverAssetId?[project.coverAssetId]:[]),...order.flatMap(space=>groups.filter(g=>g.space===space).map(g=>g.assets.map(a=>a.id).join(',')))];
+  const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'');const order=[...new Set([...(project.postType==='case'?['도면']:project.postType==='completion'?[...(!project.coverAssetId?['표지']:[]),'공사범위','시공전후']:[]),...referenceSpaceOrder(formatFor(project)),...postSpaces(project),...(project.postType==='completion'?['마무리']:[])])];const intended=[...(project.coverAssetId?[project.coverAssetId]:[]),...order.flatMap(space=>groups.filter(g=>g.space===space).map(g=>g.assets.map(a=>a.id).join(',')))];
   const actual=project.blocks.filter(b=>b.kind==='photos').map(b=>(b.assetIds||[]).join(','));
   if(JSON.stringify(intended)!==JSON.stringify(actual))warnings.push('변경한 사진 순서와 묶음을 원고에 반영해 주세요.');
   warnings.push(...missingSpaceDescriptions(project,assets).map(space=>`${space} 공간 설명을 작성해 주세요.`));

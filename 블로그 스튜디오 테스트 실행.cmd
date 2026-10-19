@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "ELECTRON_RUN_AS_NODE="
 chcp 65001 >nul
 cd /d "%~dp0"
 set "LEMONHOUSE_DATA_DIR=%~dp0.local"

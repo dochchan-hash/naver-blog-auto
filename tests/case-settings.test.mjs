@@ -4,6 +4,14 @@ import * as domain from '../shared/domain.mjs';import * as templateFields from '
 function nodes(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(nodes)];}
 const label=node=>typeof node==='string'?node:node?.props?[node.props.children].flat(Infinity).map(label).join(''):'';
 const button=(tree,text)=>nodes(tree).find(n=>['button','Button'].includes(n.type)&&label(n)===text);
+
+test('마감 템플릿 문구는 수정 변경하기를 눌렀을 때만 프로젝트에 반영한다',async()=>{
+  const project=newProject('completion','completion'),updates=[],props={project,assets:[],busy:false,onFiles:()=>{},update:patch=>updates.push(patch)};
+  const app=await harness('src/components/CompletionTemplates.tsx','CompletionTemplates',props,{}),tree=app.render();
+  const component=nodes(tree).find(n=>typeof n.type==='function'&&n.type.name==='TemplateSlot');
+  let slot=app.render(()=>component.type(component.props));const field=nodes(slot).find(n=>n.type==='textarea');field.props.onChange({target:{value:'저장하기 전의 새 문구'}});
+  assert.equal(updates.length,0);slot=app.render(()=>component.type(component.props));button(slot,'수정 변경하기').props.onClick();assert.equal(updates.length,1);assert.equal(updates[0].completionTemplates[0].text,'저장하기 전의 새 문구');assert.equal(project.completionTemplates[0].text,'');
+});
 test('카페 링크가 바뀌면 이전 공사범위 사진의 확인 경고를 표시하지 않는다',async()=>{
   const project={...newProject('scope-warning','case'),cafeUrl:'https://cafe.naver.com/example/123',sourceText:'본문'};
   project.cafeScope={signature:templateFields.cafeScopeSignature(project),location:'',area:'',concept:'',scopeProject:'',scopeCopyright:'',rows:[],warnings:['이전 사진의 글자 확인 필요']};

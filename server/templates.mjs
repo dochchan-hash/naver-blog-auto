@@ -10,7 +10,7 @@ GlobalFonts.loadSystemFonts();
 const fail=message=>Object.assign(new Error(message),{status:400});
 const flat=layers=>layers.flatMap(l=>l.hidden?[]:l.children?flat(l.children):[l]);
 
-export function readTemplate(buffer){
+export function readTemplate(buffer,{unmapped=false}={}){
   if(buffer.length<26||buffer.subarray(0,4).toString()!=='8BPS'||buffer.readUInt16BE(4)!==1||buffer.readUInt16BE(22)!==8||buffer.readUInt16BE(24)!==3)throw fail('RGB · 8비트 PSD 템플릿을 선택해 주세요.');
   const height=buffer.readUInt32BE(14),width=buffer.readUInt32BE(18);
   if(!width||!height||width*height>20_000_000)throw fail('템플릿 크기는 2천만 픽셀 이하로 선택해 주세요.');
@@ -20,6 +20,8 @@ export function readTemplate(buffer){
     psd=readPsd(buffer,{skipThumbnail:true});
   }catch(e){if(e.status)throw e;throw fail('PSD 레이어를 읽지 못했습니다. 원본 PSD 파일을 확인해 주세요.');}
   const layers=flat(psd.children||[]),texts=layers.filter(l=>l.text),photo=layers.find(l=>l.name==='메인사진');
+  // shortcut: cafe PSD registration stores a preview only; map replacement layers after the supplied layouts arrive.
+  if(unmapped){if(!psd.canvas)throw fail('미리보기가 저장된 PSD를 선택해 주세요.');return {psd,kind:'completion',layers,fields:texts};}
   if(photo){
     const fields=texts.filter(l=>!/lemonhouse|레몬하우스|ⓒ/i.test(l.text.text)).sort((a,b)=>a.top-b.top);
     if(fields.length!==2||!psd.canvas)throw fail('표지의 현장명·콘셉트 레이어를 확인하지 못했습니다.');

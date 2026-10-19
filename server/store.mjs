@@ -2,7 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync} from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {DEFAULT_STYLE, DEFAULT_CASE_STYLE, DEFAULT_SETTINGS, newProject, SPACES,CASE_SPACES} from '../shared/domain.mjs';
+import {DEFAULT_STYLE, DEFAULT_CASE_STYLE, DEFAULT_COMPLETION_STYLE, DEFAULT_SETTINGS, newProject, photoSpaces} from '../shared/domain.mjs';
 export class Store {
   constructor(dir) {
     this.dir=path.resolve(dir);mkdirSync(this.dir,{recursive:true,mode:0o700});
@@ -13,9 +13,10 @@ export class Store {
     if(!this.get('settings','main'))this.put('settings','main',DEFAULT_SETTINGS);
     if(!this.get('style','main'))this.put('style','main',DEFAULT_STYLE);
     if(!this.get('style','case'))this.put('style','case',DEFAULT_CASE_STYLE);
+    if(!this.get('style','completion'))this.put('style','completion',DEFAULT_COMPLETION_STYLE);
     const savedStyle=this.get('style','main');if(savedStyle.formatProfile&&savedStyle.formatVersion!==4)this.put('style','main',{...savedStyle,formatProfile:undefined,formatEvidence:undefined,formatCheckedAt:undefined});
     if(!this.get('system','host'))this.put('system','host',{hostId:`urn:uuid:${randomUUID()}`});
-    for(const a of this.list('asset'))if(a.role==='photo'&&!(this.get('project',a.projectId)?.postType==='case'?[...CASE_SPACES,'표지','도면']:SPACES).includes(a.space))this.put('asset',a.id,{...a,space:'미분류',spaceManual:false,analysis:undefined,warning:'기존 사진입니다. 사진 분석을 눌러 새 공간 분류를 확인해 주세요.'});
+    for(const a of this.list('asset'))if(a.role==='photo'&&!photoSpaces(this.get('project',a.projectId)||{}).includes(a.space))this.put('asset',a.id,{...a,space:'미분류',spaceManual:false,analysis:undefined,warning:'기존 사진입니다. 사진 분석을 눌러 새 공간 분류를 확인해 주세요.'});
     for(const job of this.list('job'))if(['running','queued','cancelling'].includes(job.status))this.put('job',job.id,{...job,status:job.kind==='publish'?'uncertain':'interrupted',message:job.kind==='publish'?'발행 작업이 중단되었습니다. 중복 방지를 위해 네이버 등록 여부를 확인해 주세요.':'작업이 중단되었습니다. 저장된 자료로 다시 시작할 수 있습니다.',updatedAt:new Date().toISOString()});
   }
   get(kind,id){const row=this.db.prepare('SELECT json FROM records WHERE kind=? AND id=?').get(kind,id);return row?JSON.parse(row.json):null;}

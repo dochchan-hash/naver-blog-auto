@@ -47,7 +47,7 @@ export class Naver {
         if(stable>=3)break;await pause(300);
       }while(Date.now()<until);
       if(!result.text.trim())throw fail('게시글 본문을 읽지 못했습니다. 로그인 권한을 확인하거나 본문을 직접 입력해 주세요.');
-      const formatProfile=!isCafe&&postId?await bridge.evaluate(readReferenceFormat,null,{selector:selectors,urlContains:postId}):null;
+      const formatProfile=postId?await bridge.evaluate(readReferenceFormat,null,{selector:selectors,urlContains:postId}):null;
       return {...result,url,formatProfile};
   }
   async searchComplex(query){
@@ -328,6 +328,7 @@ export class Naver {
     return this.exclusive(async()=>{const evidence=await this.confirmSchedule(project,blogId,update);const postId=evidence.postId||record.postId;const completed={...record,...evidence,postId,status:'completed',verified:true,scheduled:true,url:postId?`https://blog.naver.com/${blogId}/${postId}`:`https://blog.naver.com/${blogId}/postwrite`,completedAt:new Date().toISOString()};this.store.put('publish',key,completed);this.store.updateProject(projectId,{draftStatus:'scheduled'});bridge.publishVerified=true;return completed;});
   }
   async publish(projectId,update,{confirmReviewed=false,prepareOnly=false}={}){
+    if(this.store.get('project',projectId)?.postType==='completion')throw fail('마감글은 네이버 카페 작성 흐름을 사용해 주세요.',400);
     const bridge=this.requireBridge(),project=this.store.get('project',projectId),assets=this.store.assets(projectId),settings=this.store.get('settings','main');
     if(!/^[a-zA-Z0-9_-]{2,40}$/.test(settings.blogId))throw fail('설정에서 담당 블로그 아이디를 입력해 주세요.',400);
     const warnings=draftWarnings(project,assets);if(warnings.length&&!prepareOnly)throw fail(warnings.join('\n'),400);

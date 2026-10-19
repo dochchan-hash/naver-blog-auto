@@ -6,16 +6,17 @@ export const REFERENCE_FORMAT = {
   quoteVariant:'quotation_corner',dividerVariant:'line6',spaceOrder:['현관','거실','주방','안방','안방욕실','작은방1','작은방2','공용욕실'],dividerAfterOutro:true,
 };
 export const CASE_FORMAT={...REFERENCE_FORMAT,body:{...REFERENCE_FORMAT.body,align:'left',color:'#333333'},heading:{fontFamily:'nanummyeongjo',fontSize:19,fontWeight:400,color:'#333333',backgroundColor:'transparent',align:'left'},quote:{fontFamily:'nanummyeongjo',fontSize:19,fontWeight:400,color:'#333333',backgroundColor:'transparent',align:'center'},headingKind:'quote',headingQuoteVariant:'quotation_underline',quoteVariant:'default',dividerVariant:'line3',introQuote:true,dividerAfterOutro:false,textStyles:{outro:[{...REFERENCE_FORMAT.body,align:'center',color:'#333333'}]}};
+export const COMPLETION_FORMAT={...REFERENCE_FORMAT,body:{...REFERENCE_FORMAT.body,align:'left',backgroundColor:'transparent'},heading:{...REFERENCE_FORMAT.body,align:'left',fontFamily:'applesystem',fontSize:19,fontWeight:700,backgroundColor:'transparent'},quote:{...REFERENCE_FORMAT.body,align:'center',fontSize:19},headingKind:'quote',headingQuoteVariant:'quotation_line',quoteVariant:'quotation_corner',dividerVariant:'line5',introQuote:false,dividerAfterOutro:false,spaceOrder:['현관','복도','거실','주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','공용욕실','알파룸','베란다']};
 
 // Run in the reference article frame. Inspect visible text nodes, since the
 // paragraph's computed font can differ from the font applied to its spans.
 export function readReferenceFormat(){
   const root=document.querySelector('.se-main-container');if(!root)return null;
-  const spaces=['현관','거실','주방','안방','안방욕실','작은방1','작은방2','공용욕실','작은방','욕실','복도','알파룸','드레스룸','기타'];
+  const spaces=['현관','거실','주방','안방','안방욕실','작은방1','작은방2','공용욕실','작은방','욕실','복도','알파룸','드레스룸','파우더룸','주방베란다','안방베란다','베란다','기타'];
   const paragraphs=[...root.querySelectorAll('.se-component.se-text .se-text-paragraph,.se-component.se-quotation .se-text-paragraph')];
   const text=p=>p.textContent.replace(/[\u200B\uFEFF]/g,'').trim();
   const css=p=>{let node=[...p.querySelectorAll('span')].filter(e=>e.textContent.trim()).sort((a,b)=>b.textContent.length-a.textContent.length)[0]||p;const bold=[...node.querySelectorAll('b,strong')].find(e=>e.textContent.trim()===node.textContent.trim());if(bold)node=bold;const s=getComputedStyle(node),ps=getComputedStyle(p);const bg=s.backgroundColor==='rgba(0, 0, 0, 0)'&&node.parentElement?getComputedStyle(node.parentElement).backgroundColor:s.backgroundColor;return {fontFamily:(node.className+' '+(node.closest('[class*="se-ff-"]')?.className||'')).match(/se-ff-([a-z][a-z0-9]*)/)?.[1]||s.fontFamily.split(',')[0].replace(/^['"]?se-/, '').replace(/[^a-z0-9]/gi,'').toLowerCase()||'nanumbarungothic',fontSize:parseFloat(s.fontSize),fontWeight:Number(s.fontWeight)||400,color:s.color,backgroundColor:bg==='rgba(0, 0, 0, 0)'?'transparent':bg,align:['left','center','right','justify'].includes(ps.textAlign)?ps.textAlign:'center'};};
-  const spaceOf=p=>{const t=text(p).replace(/\s/g,'').replace(/^[0-9]+[.)．]/,'');return spaces.find(space=>new RegExp('^'+space+'(?:인테리어|공간|INTERIOR|ROOM)?$','i').test(t))||spaces.find(space=>text(p).toLowerCase()===({거실:'living room',주방:'kitchen',현관:'entrance',안방:'master bedroom',욕실:'bathroom'}[space]||''));};
+  const spaceOf=p=>{const t=text(p).replace(/\s/g,'').replace(/^[0-9]+[.)．]/,'').replace(/^안방파우더룸$/,'파우더룸');return spaces.find(space=>new RegExp('^'+space+'(?:인테리어|공간|INTERIOR|ROOM)?$','i').test(t))||spaces.find(space=>text(p).toLowerCase()===({거실:'living room',주방:'kitchen',현관:'entrance',안방:'master bedroom',욕실:'bathroom'}[space]||''));};
   const body=paragraphs.find(p=>text(p).length>25&&!spaceOf(p)&&!p.closest('.se-quotation'));
   const heading=paragraphs.find(p=>spaceOf(p)&&p.closest('.se-quotation'))||paragraphs.find(p=>spaceOf(p))||paragraphs.find(p=>{const t=text(p),c=css(p);return t.length>0&&t.length<50&&(c.fontWeight>=600||c.fontSize>(body?css(body).fontSize:15))&&!p.closest('.se-quotation');});
   const quote=root.querySelector('.se-quotation .se-text-paragraph');const components=[...root.querySelectorAll('.se-component')];
@@ -35,7 +36,7 @@ export function readReferenceFormat(){
     if(space&&(headingKind!=='quote'||c.classList.contains('se-quotation'))){role=space;headingStyles[space]=css(ps.find(spaceOf));headingTextStyles[space]=ps.map(css);if(c.classList.contains('se-quotation'))headingVariants[space]=c.className.match(/se-l-(quotation_[a-z_]+|default)/)?.[1]||'default';continue;}
     if(!c.matches('.se-text'))continue;
     const key=i<firstHeading?(before.length>1&&i<before[0].i?'lead':'intro'):i>lastHeading&&after.length&&i>after[0].i?'outro':role;
-    (textStyles[key]||=[]).push(...ps.filter(p=>text(p).toUpperCase()!=='INTERIOR PLAN').map(css));
+    (textStyles[key]||=[]).push(...ps.filter(p=>text(p).toUpperCase()!=='INTERIOR PLAN'&&!/^\d+[.)]\s/.test(text(p))).map(css));
     for(const p of ps.filter(p=>text(p).toUpperCase()==='INTERIOR PLAN'))(textStyles.plan||=[]).push(css(p));
   }
   if(after.length&&headingComponent?.className.includes('se-l-quotation_underline')){
@@ -85,10 +86,11 @@ export function spaceHeadingFirst(blocks){
   return ordered;
 }
 export function textCss(style){return `font-family:${style.fontFamily},sans-serif;font-size:${style.fontSize}px;font-weight:${style.fontWeight};font-style:normal;text-decoration:none;color:${style.color};background-color:${style.backgroundColor};`;}
-export function formatFor(project){return project.formatProfile||(project.postType==='case'?CASE_FORMAT:REFERENCE_FORMAT);}
+export function formatFor(project){return project.formatProfile||(project.postType==='completion'?COMPLETION_FORMAT:project.postType==='case'?CASE_FORMAT:REFERENCE_FORMAT);}
 export function referenceValue(values,space){return values?.[space]||values?.[/^작은방[12]$/.test(space)?'작은방':space==='공용욕실'?'욕실':space];}
 export function blockTextStyles(block,format){
   if(block.kind==='text'&&block.text?.trim().toUpperCase()==='INTERIOR PLAN')return format.textStyles?.plan||[{...format.body,color:'#ff5f45',fontSize:16,fontWeight:700,align:'left'}];
+  if(block.formatRole==='point')return [{...format.body,color:'#ff5f45',fontSize:16,fontWeight:700,align:'left'}];
   if(block.kind==='heading'||block.kind==='quote'&&block.space){const heading=referenceValue(format.headingStyles,block.space)||format.heading;return referenceValue(format.headingTextStyles,block.space)||projectHeadingStyles(block,heading);}
   if(block.kind==='quote')return [format.quote];
   const styles=referenceValue(format.textStyles,block.space||block.formatRole);return styles?.length?styles:[format.body];
