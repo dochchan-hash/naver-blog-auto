@@ -1,28 +1,32 @@
 export const SPACES = ['현관', '거실', '주방', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실'] as const;
 export type Space = typeof SPACES[number];
 export type PostType = 'recommendation' | 'case' | 'completion';
-export interface CompletionTemplate {id:string;name:string;position:'cover'|'scope'|'beforeAfter'|'space'|'closing';space:string;templateId:string;text:string;photoIds:string[];}
+export interface CompletionEdit {text?:string;photoId?:string;visible?:boolean;x?:number;y?:number;scale?:number;zoom?:number;cropX?:number;cropY?:number;fontSize?:number;fontFamily?:string;fontWeight?:number;color?:string;align?:'left'|'center'|'right';width?:number;height?:number;}
+export interface CompletionOverlay extends CompletionEdit {id:string;text:string;x:number;y:number;width:number;height:number;backgroundColor?:string;}
+export interface CompletionElement extends CompletionEdit {id:string;name:string;kind:'text'|'photo'|'image';x:number;y:number;width:number;height:number;textWidth?:number;textHeight?:number;binding?:string;imageUrl?:string;}
+export interface CompletionLayout {id:string;name:string;width:number;height:number;position:CompletionTemplate['position'];elements:CompletionElement[];previewUrl:string;}
+export interface CompletionTemplate {id:string;name:string;position:'cover'|'scope'|'beforeAfter'|'space'|'closing';space:string;templateId:string;text:string;photoIds:string[];layoutId?:string;edits?:Record<string,CompletionEdit>;overlays?:CompletionOverlay[];removedRows?:string[];markers?:{number:number;x:number;y:number}[];}
 export type Phase = 'site' | 'compare' | 'assets' | 'write' | 'publish';
-export type Role = 'photo' | 'construction' | 'floorplan-original' | 'floorplan-target' | 'template';
+export type Role = 'photo' | 'construction' | 'floorplan-original' | 'floorplan-target' | 'template' | 'video';
 export interface ComplexDetails {name:string;region:string;url:string;text:string;types:string[];images:{label:string;url:string}[];supplyArea:string;exclusiveArea:string;selectedType:string;notice:string;}
 export interface Site { name: string; region: string; type: string; supplyArea: string; exclusiveArea: string; sourceUrl: string; details?:ComplexDetails;floorplanAssetId?:string;}
 export interface SourceConflict {id:string;space:string;topic:string;constructionFactIds:string[];cafeFactIndexes:number[];reason:string;decision:'pending'|'construction'|'cafe'|'both'|'exclude'|'custom';customText:string;}
 export interface SourceReview {signature:string;checkedAt:string;cafeFacts:{space:string;item:string;evidence:string;uncertain:boolean}[];siteInfo?:{field:'location'|'area'|'concept';value:string;evidence:string;uncertain:boolean}[];conflicts:SourceConflict[];warnings:string[];}
 export interface Keyword { term: string; min: number; max: number; }
-export interface Block { id: string; kind: 'text' | 'photos' | 'heading' | 'quote' | 'divider'; text?: string; assetIds?: string[]; space?: string; variant?:string; formatRole?:'lead'|'intro'|'closing'|'outro'|'point'; }
+export interface Block { layout?:'collage'|'slide';id: string; kind: 'text' | 'photos' | 'heading' | 'quote' | 'divider' | 'map' | 'video'; text?: string; assetIds?: string[]; space?: string; variant?:string; formatRole?:'lead'|'intro'|'closing'|'outro'|'point'|'pointBody'|'contact'; }
 export interface TextFormat {fontFamily:string;fontSize:number;fontWeight:number;color:string;backgroundColor:string;align:'left'|'center'|'right'|'justify';}
-export interface FormatProfile {body:TextFormat;heading:TextFormat;quote:TextFormat;quoteVariant:string;dividerVariant:string;spaceOrder:string[];dividerAfterOutro:boolean;textStyles?:Record<string,TextFormat[]>;headingStyles?:Record<string,TextFormat>;headingTextStyles?:Record<string,TextFormat[]>;headingVariants?:Record<string,string>;introLead?:boolean;introQuote?:boolean;headingKind?:"text"|"quote";headingQuoteVariant?:string;introDividerVariant?:string;sectionDividerVariant?:string;outroDividerVariant?:string;closingDividerVariant?:string;}
+export interface FormatProfile {postType?:PostType;photoLayouts?:Record<string,('default'|'collage'|'slide')[]>;body:TextFormat;heading:TextFormat;quote:TextFormat;quoteVariant:string;dividerVariant:string;spaceOrder:string[];dividerAfterOutro:boolean;textStyles?:Record<string,TextFormat[]>;headingStyles?:Record<string,TextFormat>;headingTextStyles?:Record<string,TextFormat[]>;headingVariants?:Record<string,string>;introLead?:boolean;introQuote?:boolean;headingKind?:"text"|"quote";headingQuoteVariant?:string;introDividerVariant?:string;sectionDividerVariant?:string;outroDividerVariant?:string;closingDividerVariant?:string;}
 export interface Fact { id: string; space: string; item: string; sourceAssetId?: string; page?: number; sourceLabel: string; confirmed: boolean; uncertain: boolean; }
 export interface Asset {
   id: string; projectId: string; role: Role; filename: string; mime: string; bytes: number; hash: string;
   width?: number; height?: number; previewBytes?: number; status: string; warning?: string;
   space: string; group: string; order: number; excluded: boolean; pages?: {page: number; text: string; imageUrl?: string}[];
-  templateKind?:'cover'|'scope'|'completion';templateOutput?:'cover'|'scope'|'floorplan';templateSignature?:string;
+  templateKind?:'cover'|'scope'|'completion';templateOutput?:'cover'|'scope'|'floorplan'|'completion';templateSignature?:string;templateSlotId?:string;templateIncomplete?:string[];layouts?:CompletionLayout[];
   analysis?: { space?: string; description?: string; facts?: Fact[] }; previewUrl: string; originalUrl: string;
 }
 export interface Comparison { summary: string; similarities: string[]; differences: string[]; unknowns: string[]; reviewed: boolean; }
 export interface Project {
-  cafeTargetUrl?:string;cafeBoardUrl?:string;completionTemplates?:CompletionTemplate[];
+  completionVideoId?:string;cafeTargetUrl?:string;cafeBoardUrl?:string;completionTemplates?:CompletionTemplate[];
   id: string; revision: number; name: string; phase: Phase; original: Site; target: Site; postType?:PostType; category?:string;
   manualWork: string; cafeUrl: string; sourceText: string; concept: string; keywords: Keyword[];
   title: string; blocks: Block[]; tags: string[]; facts: Fact[]; comparison: Comparison | null;

@@ -1,16 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import vm from 'node:vm';import ts from 'typescript';
 import {newProject} from '../shared/domain.mjs';
-import * as domain from '../shared/domain.mjs';import * as templateFields from '../shared/template-fields.mjs';import * as sources from '../shared/sources.mjs';
+import * as domain from '../shared/domain.mjs';import * as templateFields from '../shared/template-fields.mjs';import * as sources from '../shared/sources.mjs';import * as completionTemplates from '../shared/completion-templates.mjs';
 function nodes(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(nodes)];}
 const label=node=>typeof node==='string'?node:node?.props?[node.props.children].flat(Infinity).map(label).join(''):'';
 const button=(tree,text)=>nodes(tree).find(n=>['button','Button'].includes(n.type)&&label(n)===text);
 
 test('마감 템플릿 문구는 수정 변경하기를 눌렀을 때만 프로젝트에 반영한다',async()=>{
-  const project=newProject('completion','completion'),updates=[],props={project,assets:[],busy:false,onFiles:()=>{},update:patch=>updates.push(patch)};
+  const project=newProject('completion','completion'),updates=[],tasks=[],props={project,assets:[],busy:false,onFiles:()=>{},update:patch=>updates.push(patch),task:(...args)=>tasks.push(args),patchAssets:async()=>{}};
+  project.completionTemplates[0].position='space';
   const app=await harness('src/components/CompletionTemplates.tsx','CompletionTemplates',props,{}),tree=app.render();
   const component=nodes(tree).find(n=>typeof n.type==='function'&&n.type.name==='TemplateSlot');
   let slot=app.render(()=>component.type(component.props));const field=nodes(slot).find(n=>n.type==='textarea');field.props.onChange({target:{value:'저장하기 전의 새 문구'}});
-  assert.equal(updates.length,0);slot=app.render(()=>component.type(component.props));button(slot,'수정 변경하기').props.onClick();assert.equal(updates.length,1);assert.equal(updates[0].completionTemplates[0].text,'저장하기 전의 새 문구');assert.equal(project.completionTemplates[0].text,'');
+  assert.equal(updates.length,0);slot=app.render(()=>component.type(component.props));button(slot,'수정 변경하기').props.onClick();assert.equal(updates.length,1);assert.equal(updates[0].completionTemplates[0].text,'저장하기 전의 새 문구');assert.equal(project.completionTemplates[0].text,'');assert.deepEqual(tasks,[['templates',false,project.completionTemplates[0].id]]);
 });
 test('카페 링크가 바뀌면 이전 공사범위 사진의 확인 경고를 표시하지 않는다',async()=>{
   const project={...newProject('scope-warning','case'),cafeUrl:'https://cafe.naver.com/example/123',sourceText:'본문'};
@@ -24,7 +25,7 @@ async function harness(file,exportName,props,api){
   const states=[],refs=[],effects=[];let stateIndex=0,refIndex=0,effectIndex=0,pending=[];
   const hooks={useState:value=>{const i=stateIndex++;if(!(i in states))states[i]=value;return [states[i],next=>states[i]=typeof next==='function'?next(states[i]):next];},useRef:value=>refs[refIndex++]|| (refs[refIndex-1]={current:value}),useEffect:(fn,deps)=>{const i=effectIndex++;if(!effects[i]||deps.some((d,j)=>!Object.is(d,effects[i].deps[j])))pending.push(()=>{effects[i]?.cleanup?.();effects[i]={deps,cleanup:fn()};});}};
   const module={exports:{}},components=new Proxy({},{get:(_,name)=>name==='bytes'?value=>String(value):String(name)});
-  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},Date,console});
+  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:name==='../../shared/completion-templates.mjs'?completionTemplates:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},Date,console});
   return {render:(component=module.exports[exportName])=>{stateIndex=refIndex=effectIndex=0;pending=[];const tree=component(props);pending.forEach(fn=>fn());return tree;}};
 }
 test('작성 스타일에서 추천글과 시공사례의 링크·규칙·서식을 따로 편집하고 저장한다',async()=>{
@@ -61,4 +62,15 @@ test('사진 단계에서 사진을 먼저 첨부하고 미리보기 옆에서 �
   props.assets.push({id:'cover',role:'photo',templateOutput:'cover',status:'ready',excluded:false,previewUrl:'/preview.jpg',originalUrl:'/original.jpg',templateSignature:'old'});editor=app.render();let download=nodes(editor).find(n=>n.type==='a'&&n.props.download);assert.equal(download.props.href,undefined);assert.equal(download.props['aria-disabled'],true);
   props.assets.at(-1).templateSignature=sources.templateSourceSignature(props.project,props.assets);editor=app.render();download=nodes(editor).find(n=>n.type==='a'&&n.props.download);assert.equal(download.props.href,'/original.jpg');
   button(editor,'현장 정보로 되돌리기').props.onClick();editor=app.render();assert.equal(field('표지 현장명').props.value,'시공 현장');
+});
+
+test('PSD 원본 복원은 원문·폰트·크기·굵기를 보여 주고 선택 사진과 저장 전 상태를 보존한다',async()=>{
+ const p=newProject('defaults-ui','completion');p.completionTemplates[0]={...p.completionTemplates[0],templateId:'template',edits:{title:{text:'수정한 문구',fontFamily:'Malgun Gothic',fontSize:80,fontWeight:700},photo:{photoId:'chosen'}},overlays:[{id:'extra',text:'추가 문구'}]};
+ const updates=[],element={id:'title',name:'원본 제목',kind:'text',text:'PSD 원본 문구',fontFamily:'Freesentation-5Medium',fontSize:36,fontWeight:500,width:250,height:50,x:10,y:10};
+ const assets=[{id:'template',role:'template',templateKind:'completion',layouts:[{id:'0',width:300,height:200,elements:[element,{id:'photo',kind:'photo',name:'사진칸',x:0,y:60,width:100,height:100}]}]}];
+ const props={project:p,assets,busy:false,onFiles:()=>{},update:patch=>updates.push(patch),task:()=>{},patchAssets:async()=>{}},app=await harness('src/components/CompletionTemplates.tsx','CompletionTemplates',props,{}),component=nodes(app.render()).find(n=>typeof n.type==='function'&&n.type.name==='TemplateSlot');
+ let tree=app.render(()=>component.type(component.props));button(tree,'원본 문구·서식으로').props.onClick();tree=app.render(()=>component.type(component.props));assert.equal(updates.length,0);
+ const field=label=>nodes(tree).find(n=>n.type==='Field'&&n.props.label===label).props.children;
+ field('세부 수정할 항목').props.onChange({target:{value:'title'}});tree=app.render(()=>component.type(component.props));assert.equal(field('문구').props.value,'PSD 원본 문구');assert.equal(field('글꼴').props.value,'Freesentation-5Medium');assert.equal(field('글자 크기').props.value,36);assert.equal(field('글자 굵기').props.value,500);
+ button(tree,'수정 변경하기').props.onClick();assert.equal(updates[0].completionTemplates[0].edits.photo.photoId,'chosen');assert.equal(updates[0].completionTemplates[0].edits.title,undefined);assert.equal(updates[0].completionTemplates[0].overlays.length,0);assert.equal(p.completionTemplates[0].edits.title.text,'수정한 문구');
 });

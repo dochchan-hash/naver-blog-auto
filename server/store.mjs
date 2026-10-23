@@ -25,7 +25,7 @@ export class Store {
   remove(kind,id){this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);}
   getCache(key){const row=this.db.prepare('SELECT json FROM cache WHERE key=?').get(key);return row?JSON.parse(row.json):null;}
   setCache(key,value){this.db.prepare('INSERT INTO cache(key,json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET json=excluded.json').run(key,JSON.stringify(value));}
-  createProject(postType='recommendation'){const p={...newProject(randomUUID(),postType),...(postType==='case'?this.get('templates','main'):null)};this.put('project',p.id,p);return p;}
+  createProject(postType='recommendation'){const p={...newProject(randomUUID(),postType),...(postType==='case'?this.get('templates','main'):null)};if(postType==='completion'){const library=this.get('templates','completion')||{};p.completionTemplates=p.completionTemplates.map(s=>({...s,templateId:library[s.position]||''}));}this.put('project',p.id,p);return p;}
   saveProject(value, expectedRevision) {
     const current=this.get('project',value.id);
     if(!current)throw Object.assign(new Error('원고를 찾을 수 없습니다.'),{status:404});
@@ -34,7 +34,7 @@ export class Store {
     this.put('project',value.id,next);return next;
   }
   updateProject(id, changes){const p=this.get('project',id);if(!p)throw new Error('원고가 없습니다.');return this.saveProject({...p,...changes},p.revision);}
-  asset(id){const a=this.get('asset',id);if(!a)return null;return {...a,previewUrl:`/api/assets/${id}/preview${a.templateOutput?'?rev='+a.hash:''}`,originalUrl:`/api/assets/${id}/original`,pages:a.pages?.map(p=>({...p,imageUrl:p.imagePath?`/api/assets/${id}/page/${p.page}`:undefined}))};}
+  asset(id){const a=this.get('asset',id);if(!a)return null;return {...a,previewUrl:`/api/assets/${id}/preview${a.templateOutput?'?rev='+a.hash:''}`,originalUrl:`/api/assets/${id}/original`,layouts:a.layouts?.map(l=>({...l,previewUrl:`/api/assets/${id}/layout/${l.id}`,elements:l.elements.map(e=>({...e,imageUrl:`/api/assets/${id}/element/${e.id}`}))})),pages:a.pages?.map(p=>({...p,imageUrl:p.imagePath?`/api/assets/${id}/page/${p.page}`:undefined}))};}
   assets(projectId){return this.list('asset').filter(a=>!projectId||a.projectId===projectId).map(a=>this.asset(a.id));}
   close(){this.db.close();}
 }

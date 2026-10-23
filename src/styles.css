@@ -35,3 +35,23 @@
 .completion-photo-picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;padding:12px 0;max-height:360px;overflow:auto}
 .completion-photo-picker label{display:flex;flex-direction:column;gap:6px;font-size:12px;overflow-wrap:anywhere}
 .completion-photo-picker img{width:100%;height:100px;object-fit:cover}
+.completion-template-slot .template-image-preview img{height:auto;max-height:none;margin:0}
+.completion-template-slot .template-image-preview button{display:block;line-height:0}
+.completion-template-slot small{display:block;margin:12px 0;color:#71806e;line-height:1.7}
+.completion-layer-controls{padding:16px;margin:12px 0;border:1px solid var(--line);border-radius:8px;background:#f8faf5}
+.completion-layer-controls details{margin:14px 0}.completion-template-slot details summary{cursor:pointer;margin:12px 0;font-size:13px}
+
+.preview-photos.slide{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}.preview-photos.slide img{flex:0 0 100%;width:100%;scroll-snap-align:start;object-fit:contain}
+
+@font-face{font-family:Freesentation;src:url(/api/template-font/400);font-weight:400;font-display:swap;}
+@font-face{font-family:Freesentation;src:url(/api/template-font/500);font-weight:500;font-display:swap;}
+@font-face{font-family:Freesentation;src:url(/api/template-font/700);font-weight:700;font-display:swap;}
+.completion-edit-canvas{display:block;width:100%;height:auto;touch-action:none;cursor:grab;border:1px solid #d8dfd3;}
+.completion-photo-strip{display:flex;gap:8px;overflow-x:auto;margin:12px 0;}
+.completion-photo-strip img{width:72px;height:64px;object-fit:cover;border-radius:6px;}
+.completion-row-list{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;}
+
+.completion-edit-canvas{max-height:none;object-fit:fill;}
+.completion-preview-scroll{max-height:600px;overflow:auto;}
+
+.preview-map{padding:24px;border:1px solid #ddd;margin:24px 0;text-align:left;background:#f4f6f2}.preview-map small{color:#777}.preview-video{margin:24px 0}.preview-video video{width:100%}.preview-video figcaption{text-align:center;font-size:13px;color:#777}

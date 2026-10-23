@@ -7,6 +7,7 @@ import {Transform} from 'node:stream';
 import Busboy from 'busboy';
 import sharp from 'sharp';
 import {readTemplate} from './templates.mjs';
+import {compileCompletionTemplate} from './completion-templates.mjs';
 import {createCanvas,DOMMatrix,ImageData,Path2D} from '@napi-rs/canvas';
 globalThis.DOMMatrix ||= DOMMatrix;globalThis.ImageData ||= ImageData;globalThis.Path2D ||= Path2D;
 const fileError=message=>Object.assign(new Error(message),{status:400});
@@ -16,6 +17,7 @@ export function detectMime(head) {
   if(head[0]===0xff&&head[1]===0xd8&&head[2]===0xff)return 'image/jpeg';
   if(head.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return 'image/png';
   if(head.subarray(0,4).toString()==='RIFF'&&head.subarray(8,12).toString()==='WEBP')return 'image/webp';
+  if(head.length>=12&&head.subarray(4,8).toString()==='ftyp'&&/^(?:isom|iso[2-9]|avc1|mp4[12]|M4V |qt  )$/.test(head.subarray(8,12).toString()))return head.subarray(8,12).toString()==='qt  '?'video/quicktime':'video/mp4';
   return null;
 }
 export class Assets {
@@ -36,9 +38,10 @@ export class Assets {
   }
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
-    if(!['photo','construction','floorplan-original','floorplan-target','template'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(!['photo','construction','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(role==='video'&&this.store.get('project',projectId).postType!=='completion')throw fileError('동영상은 카페 마감에 첨부해 주세요.');
     if(role==='template'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('PSD 템플릿은 시공사례 또는 마감에 첨부해 주세요.');
-    const id=randomUUID(),folder=this.resolve(id);await fsp.mkdir(folder,{mode:0o700});
+    const id=randomUUID(),folder=this.resolve(id),templateLimit=this.store.get('project',projectId).postType==='completion'?256:64;await fsp.mkdir(folder,{mode:0o700});
     const dest=path.join(folder,'original');let filename,bytes=0,hash,head=Buffer.alloc(0),work,error;
     try {
       await new Promise((resolve,reject)=>{
@@ -47,7 +50,7 @@ export class Assets {
         bb.on('file',(_,file,info)=>{
           if(seen){file.resume();error=fileError('파일을 한 개씩 전송해 주세요.');return;}seen=true;filename=path.basename(info.filename||'첨부파일');
           const sha=createHash('sha256');
-          const meter=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;if(role==='template'&&bytes>64*1024*1024)return cb(fileError('PSD 템플릿은 64MB 이하로 선택해 주세요.'));sha.update(chunk);if(head.length<16)head=Buffer.concat([head,chunk]).subarray(0,16);cb(null,chunk);}});
+          const meter=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;if(role==='video'&&bytes>1024*1024*1024)return cb(fileError('동영상은 1GB 이하로 선택해 주세요.'));if(role==='template'&&bytes>templateLimit*1024*1024)return cb(fileError(`PSD 템플릿은 ${templateLimit}MB 이하로 선택해 주세요.`));sha.update(chunk);if(head.length<16)head=Buffer.concat([head,chunk]).subarray(0,16);cb(null,chunk);}});
           work=pipeline(file,meter,fs.createWriteStream(dest,{mode:0o600})).then(()=>{hash=sha.digest('hex');}).catch(e=>{error=e;});
         });
         bb.on('filesLimit',()=>{error=fileError('파일을 한 개씩 전송해 주세요.');});
@@ -55,26 +58,34 @@ export class Assets {
         bb.on('close',async()=>{await work;if(error)return reject(error);if(!seen||!bytes)return reject(fileError('빈 파일은 첨부할 수 없습니다.'));resolve();});req.pipe(bb);
       });
       const mime=detectMime(head);
+      if((role==='video')!==!!mime?.startsWith('video/'))throw fileError(role==='video'?'MP4 또는 MOV 동영상을 선택해 주세요.':'동영상은 마감 동영상 영역에 첨부해 주세요.');
       if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD 파일을 선택해 주세요.');
       if((role==='template')!==(mime==='image/vnd.adobe.photoshop'))throw fileError(role==='template'?'PSD 템플릿 파일을 선택해 주세요.':'PSD는 시공사례 템플릿 영역에 첨부해 주세요.');
       if(role==='construction'&&!['application/pdf','image/jpeg'].includes(mime))throw fileError('공사시공내역은 PDF 또는 JPG 파일을 선택해 주세요.');
       if(role==='photo'&&mime==='application/pdf')throw fileError('현장 사진 영역에는 이미지 파일을 넣어 주세요.');
-      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd'}[mime];
+      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd','video/mp4':'mp4','video/quicktime':'mov'}[mime];
       const originalPath=`${id}/original.${extension}`;await fsp.rename(dest,this.resolve(originalPath));
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
       const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:'미분류',group:'',order:existing.length,excluded:false};
       if(role==='template'){
         const template=readTemplate(await fsp.readFile(this.resolve(originalPath)),{unmapped:this.store.get('project',projectId)?.postType==='completion'}),previewPath=`${id}/preview.jpg`;
+        if(template.kind==='completion'){
+          const layouts=await compileCompletionTemplate(template,folder,filename),p=this.store.get('project',projectId),slots=p.completionTemplates||[],position=layouts[0].position;
+          if(slots.length>=100)throw fileError('마감 템플릿은 최대 100개까지 등록할 수 있습니다.');
+          await fsp.copyFile(path.join(folder,layouts[0].previewFile),this.resolve(previewPath));
+          Object.assign(asset,{projectId:'completion-templates',templateKind:'completion',templateVersion:2,status:'ready',previewPath,layouts});this.store.put('asset',id,asset);
+          const blank=slots.find(s=>!s.templateId&&s.position===position),slot={id:blank?.id||randomUUID(),name:filename.replace(/\.psd$/i,''),position,space:blank?.space||'거실',templateId:id,layoutId:layouts[0].id,text:'',photoIds:[]};
+          this.store.updateProject(projectId,{completionTemplates:blank?slots.map(s=>s.id===blank.id?slot:s):[...slots,slot]});this.store.put('templates','completion',{...this.store.get('templates','completion'),[position]:id});return this.store.asset(id);
+        }
         const board=template.psd.children.find(l=>l.artboard)?.artboard?.rect;
         let image=sharp(template.psd.canvas.toBuffer('image/png'));if(board)image=image.extract({left:board.left,top:board.top,width:board.right-board.left,height:board.bottom-board.top});
         await image.resize({width:1000,height:1000,fit:'inside'}).jpeg({quality:85}).toFile(this.resolve(previewPath));
         Object.assign(asset,{projectId:'templates',templateKind:template.kind,status:'ready',previewPath});
-        if(template.kind==='completion'){
-          asset.projectId='completion-templates';const p=this.store.get('project',projectId),slots=p.completionTemplates||[];if(slots.length>=100)throw fileError('마감 템플릿은 최대 100개까지 등록할 수 있습니다.');this.store.put('asset',id,asset);this.store.updateProject(projectId,{completionTemplates:[...slots,{id:randomUUID(),name:filename.replace(/\.psd$/i,''),position:'space',space:'거실',templateId:id,text:'',photoIds:[]}]});return this.store.asset(id);
-        }
         this.store.put('asset',id,asset);const key=`${template.kind}TemplateId`;this.store.put('templates','main',{...this.store.get('templates','main'),[key]:id});this.store.updateProject(projectId,{[key]:id});return this.store.asset(id);
       }
+      if(role==='video')asset.status='ready';
       this.store.put('asset',id,asset);
+      if(role==='video')return this.store.asset(id);
       this.queue=this.queue.then(()=>this.process(id)).catch(()=>{});
       return this.store.asset(id);
     }catch(error){await fsp.rm(folder,{recursive:true,force:true});throw error;}

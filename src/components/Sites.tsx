@@ -4,7 +4,7 @@ import type {Project,Asset,Role,ComplexDetails} from '../../shared/model';
 import {api} from '../api';
 import {Field,SectionTitle,Button,Notice,Dropzone,Next} from './Common';
 import {ConstructionSources} from './Construction';
-type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<void>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
+type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<unknown>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
 type Candidate={name:string;url?:string;label?:string;key?:string};
 const pyeong=(area:string)=>Number(area)>0?`${(Number(area)/3.305785).toFixed(1)}평`:'';
 function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Props&{which:'original'|'target'}){

@@ -11,8 +11,8 @@ export const api={
   deleteProject:(id:string)=>request<{ok:boolean}>(`/projects/${id}`,{method:'DELETE'}),
   createProject:(postType:PostType='recommendation')=>request<Project>('/projects',{method:'POST',body:JSON.stringify({postType})}),
   saveProject:(p:Project)=>request<Project>(`/projects/${p.id}`,{method:'PUT',body:JSON.stringify(p)}),
-  upload:(id:string,role:Role,file:File,onProgress:(value:number)=>void)=>new Promise<Asset>((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();xhr.open('POST',`/api/projects/${id}/assets?role=${role}`);xhr.setRequestHeader('X-Lemon-CSRF',csrf);
+  upload:(id:string,role:Role,file:File,onProgress:(value:number)=>void,classify=true)=>new Promise<Asset>((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();xhr.open('POST',`/api/projects/${id}/assets?role=${role}&classify=${classify}`);xhr.setRequestHeader('X-Lemon-CSRF',csrf);
     xhr.timeout=300000;xhr.ontimeout=()=>reject(new Error('파일 전송 시간이 초과되었습니다. 다시 첨부해 주세요.'));
     xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round(e.loaded/e.total*100));};
     xhr.onerror=()=>reject(new Error('파일 전송이 중단되었습니다. 다시 첨부해 주세요.'));
@@ -34,7 +34,7 @@ export const api={
   complex:(url:string,type='')=>request<ComplexDetails>('/naver/complex',{method:'POST',body:JSON.stringify({url,type})}),
   floorplan:(projectId:string,role:Role,url:string)=>request<Asset>('/naver/floorplan',{method:'POST',body:JSON.stringify({projectId,role,url})}),
   cancelJob:(id:string)=>request<Job>(`/jobs/${id}/cancel`,{method:'POST'}),
-  task:(id:string,kind:string,confirmReviewed:boolean,expectedRevision:number)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed,expectedRevision})}),
+  task:(id:string,kind:string,confirmReviewed:boolean,expectedRevision:number,templateSlotId?:string)=>request<Job>(`/projects/${id}/tasks/${kind}`,{method:'POST',body:JSON.stringify({confirmReviewed,expectedRevision,...(templateSlotId?{templateSlotId}:{})})}),
   refreshFormat:(postType:PostType='recommendation')=>request<Job>('/style/format',{method:'POST',body:JSON.stringify({postType})}),
   analyzeStyle:(postType:PostType='recommendation')=>request<Job>('/style/analyze',{method:'POST',body:JSON.stringify({postType})}),
   recordPublish:(id:string,url:string,scheduled:boolean,scheduleAt:string)=>request<Project>(`/projects/${id}/publish-result`,{method:'POST',body:JSON.stringify({url,scheduled,scheduleAt})}),

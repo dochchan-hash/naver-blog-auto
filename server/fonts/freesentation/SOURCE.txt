@@ -1,0 +1,4 @@
+Freesentation 1.006 — Regular, Medium and Bold, unchanged.
+Source: https://github.com/Freesentation/freesentation/blob/main/Freesentation_1.006.zip
+Copyright 2024 The Freesentation Authors. SIL Open Font License 1.1, see OFL.txt.
+Used by the supplied 2025 Lemonhouse cover PSD. Loaded inside the renderer; no Windows installation.
