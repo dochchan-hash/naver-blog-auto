@@ -100,7 +100,7 @@ export async function createServer({dataDir=process.env.LEMONHOUSE_DATA_DIR||pat
     for(const a of checked)store.put('asset',a.id,a);
     res.json({assets:store.assets()});
   }));
-  app.get('/api/template-font/:weight',(req,res)=>{const face={'400':'4Regular','500':'5Medium','700':'7Bold'}[req.params.weight];if(!face)return res.sendStatus(404);res.sendFile(path.join(root,'server','fonts','freesentation','Freesentation-'+face+'.ttf'),{dotfiles:'allow'});});
+  app.get('/api/template-font/:weight',(req,res)=>{const family=req.query.family||'freesentation',face=family==='freesentation'?{'400':'4Regular','500':'5Medium','700':'7Bold'}[req.params.weight]:family==='pretendard'?{'300':'Light','400':'Regular','500':'Medium','600':'SemiBold','700':'Bold'}[req.params.weight]:null;if(typeof face!=='string')return res.sendStatus(404);res.sendFile(path.join(root,'server','fonts',family,family==='pretendard'?'Pretendard-'+face+'.otf':'Freesentation-'+face+'.ttf'),{dotfiles:'allow'});});
   app.get('/api/assets/:id/element/:elementId',asyncRoute(async(req,res)=>{
     const template=store.get('asset',req.params.id),element=template?.layouts?.flatMap(l=>l.elements).find(e=>e.id===req.params.elementId);
     if(template?.templateKind!=='completion'||!element)throw Object.assign(new Error('PSD 항목이 없습니다.'),{status:404});

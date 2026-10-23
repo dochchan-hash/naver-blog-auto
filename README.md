@@ -8,13 +8,13 @@
 
 ## 실행
 
-**이 PC에서는 기존 `레몬하우스 실행.cmd`를 그대로 사용하면 추천글·시공사례·카페 마감 기능이 포함된 최신 버전으로 열립니다.** 다른 PC용 [Releases 배포본](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)의 ZIP은 이번 소스 갱신에서 교체하지 않았으므로 마감 기능은 최신 소스를 빌드해 사용하세요. 기존 ZIP을 사용할 때도 **모두 추출**하고 폴더 안의 `Lemonhouse Blog Studio.exe`를 실행합니다. 자세한 절차는 [Windows 사용 안내](WINDOWS_START.md)를 참고하세요.
+**[Windows 최신 실행본](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)의 ZIP을 새 폴더에 모두 추출한 뒤 `레몬하우스 실행.cmd`를 실행하세요.** 현재 PC와 같은 추천글·시공사례·카페 마감 기능, 작성 스타일 3종, PSD 템플릿 7개가 포함됩니다. 계정·기존 원고·현장 사진은 포함하지 않으므로 ChatGPT와 네이버에는 직접 로그인합니다. Node.js 설치나 빌드는 필요하지 않습니다. 자세한 절차는 [Windows 사용 안내](WINDOWS_START.md)를 참고하세요.
 
 GitHub의 **Code → Download ZIP**과 **Source code**는 개발용 소스입니다. 실행본은 **Releases**에서 받습니다. 이 저장소에는 개인 계정 연결, 현장 사진, 작성한 원고를 포함하지 않습니다. 새 컴퓨터에서는 ChatGPT와 네이버에 처음 한 번씩 로그인하세요.
 
 직접 빌드한 작업 폴더에서는 Mac의 **레몬하우스 실행.command** 또는 Windows의 **레몬하우스 실행.cmd**를 사용하면 해당 폴더에 저장된 자료를 이어서 사용합니다. `release` 폴더가 필요합니다.
 
-이 PC의 기존 **블로그 스튜디오 실행.cmd**는 이 폴더의 **레몬하우스 실행.cmd**를 거쳐 `release/win-unpacked`의 실행본을 엽니다. 현재 이 실행본에는 추천글과 시공사례가 포함되어 있으며, 병합한 마감 기능은 새 실행본 적용이 필요합니다. `.local`은 원고·사진·계정 저장 폴더이고, 소스·의존성·검사 파일은 이후 수정과 빌드를 위해 보관합니다. 카페 마감 테스트의 PSD·원고 자료는 별도 워크트리에도 보존합니다.
+이 PC의 기존 **블로그 스튜디오 실행.cmd**는 이 폴더의 **레몬하우스 실행.cmd**를 거쳐 `release/win-unpacked`의 실행본을 엽니다. 추천글·시공사례·카페 마감을 모두 포함합니다. Windows 배포 ZIP도 같은 폴더 구조와 실행 스크립트를 사용하며, `.local`에는 기본 PSD·스타일과 사용 중 저장한 원고·사진·계정을 보관합니다. 기존 사용 폴더에 ZIP을 덮어쓰지 마세요. 소스·의존성·검사 파일은 개발 저장소에만 보관하며 배포 ZIP에는 넣지 않습니다.
 
 - Mac Apple Silicon: `release/Lemonhouse Blog Studio-0.1.0-arm64.dmg`
 - Mac Intel: `release/Lemonhouse Blog Studio-0.1.0.dmg`

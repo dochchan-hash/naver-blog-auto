@@ -1,0 +1,11 @@
+Unmodified Pretendard OTF files from the Windows installation used by the supplied PSDs.
+Official project: https://github.com/orioncactus/pretendard
+Copyright and SIL Open Font License 1.1: see OFL.txt.
+Bundled weights: Light, Regular, Medium, SemiBold, Bold. No OS font installation required.
+
+SHA256
+b9a28a49b83b29b347a76383996a5bcdc316cac0eaf566440887c459c6c1a180  Pretendard-Light.otf
+7228007b7fc42fd281d9a6d863e77e0da154c6628a7527bd6e2068f631ff4952  Pretendard-Regular.otf
+675f1de626324c36f87da71406d57aeb19921f038f71838045bd56457f71fd6b  Pretendard-Medium.otf
+eac28ccfd1f74e7a2c01b0ed1a654b4bae50de97b394679d2ad19dcfc3449f01  Pretendard-SemiBold.otf
+03a5b0e86f4de0a25b65544336cf653ef4489418802ec789deacff9b8524eb55  Pretendard-Bold.otf

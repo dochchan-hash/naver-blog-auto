@@ -23,7 +23,7 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
           else{p.fillStyle='#eef0e9';p.fillRect(0,0,part.width,part.height);p.fillStyle='#61715d';p.font='24px sans-serif';p.fillText('사진을 끌어 넣으세요',18,part.height/2);}
           p.globalCompositeOperation='destination-in';p.drawImage(sprite,0,0);c.drawImage(part,x,y,part.width*scale,part.height*scale);
         }else if(element.kind==='text'&&(completionText(project,slot,element,assets)!==element.text||['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>change[k as keyof CompletionEdit]!==undefined))){
-          const size=change.fontSize??element.fontSize??32,family=change.fontFamily||element.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':family;
+          const size=change.fontSize??element.fontSize??32,family=change.fontFamily||element.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':/Pretendard/i.test(family)?'Pretendard':family;
           await document.fonts.load((change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"');
           c.font=(change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"';c.fillStyle=change.color||element.color||'#222222';c.textBaseline='top';const width=change.width||element.textWidth||element.width,align=change.align||element.align||'left';c.textAlign=align;let line='',row=0;
           const write=()=>{c.fillText(line,x+(align==='center'?width/2:align==='right'?width:0),y+row++*size*1.3);line='';};
@@ -34,7 +34,7 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
       }
       for(const overlay of slot.overlays||[]){
         if(overlay.backgroundColor&&overlay.backgroundColor!=='transparent'){c.fillStyle=overlay.backgroundColor;c.fillRect(overlay.x,overlay.y,overlay.width,overlay.height);}
-        const family=overlay.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':family,size=overlay.fontSize||32,weight=overlay.fontWeight||400;
+        const family=overlay.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':/Pretendard/i.test(family)?'Pretendard':family,size=overlay.fontSize||32,weight=overlay.fontWeight||400;
         await document.fonts.load(weight+' '+size+'px "'+font+'"');c.font=weight+' '+size+'px "'+font+'"';c.fillStyle=overlay.color||'#222222';c.textBaseline='top';c.textAlign=overlay.align||'left';let line='',row=0;
         const write=()=>{c.fillText(line,overlay.x+(overlay.align==='center'?overlay.width/2:overlay.align==='right'?overlay.width:0),overlay.y+row++*size*1.3);line='';};
         for(const char of overlay.text){if(char==='\n'){write();continue;}if(line&&c.measureText(line+char).width>overlay.width)write();line+=char;}write();

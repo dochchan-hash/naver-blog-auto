@@ -1,0 +1,7 @@
+Official source: https://www.kopus.org/biz-electronic-font2/
+Official license: https://www.kopus.org/wp-content/uploads/2021/04/서체_라이선스.pdf
+Copyright 2018 Korea Publisher Society; font designed by FONTRIX Inc.
+Original unmodified TTF for local desktop use; not a hosted font service.
+
+SHA256
+069494cce21a4222c88e537f256b6f46fee209375aba769f82431b2d382bc84f  KoPubWorld Dotum Light.ttf

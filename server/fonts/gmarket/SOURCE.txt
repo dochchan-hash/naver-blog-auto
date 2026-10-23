@@ -1,0 +1,6 @@
+Official source and redistribution terms: https://news.gmarket.com/fonts/
+Copyright: Gmarket. Original unmodified OTF files.
+
+SHA256
+4d0e36f3449e0e334d625b2f246adbb2c575d1764d750b49bc6bb9bc83922317  GmarketSansLight.otf
+39845e70b83555398b0710e85fa389702757dcb22a7241d5a196e90bc23ac9c8  GmarketSansMedium.otf

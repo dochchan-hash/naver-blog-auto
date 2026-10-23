@@ -7,6 +7,8 @@ import {completionText,completionPhotos,completionBands,completionMarkers,comple
 import {checkCancelled} from './jobs.mjs';
 initializeCanvas(createCanvas,undefined,(w,h)=>new ImageData(w,h));
 for(const face of ['4Regular','5Medium','7Bold'])GlobalFonts.registerFromPath(fileURLToPath(new URL('./fonts/freesentation/Freesentation-'+face+'.ttf',import.meta.url)));
+for(const face of ['Light','Regular','Medium','SemiBold','Bold'])GlobalFonts.registerFromPath(fileURLToPath(new URL('./fonts/pretendard/Pretendard-'+face+'.otf',import.meta.url)));
+for(const file of ['gmarket/GmarketSansLight.otf','gmarket/GmarketSansMedium.otf','kopub/KoPubWorld Dotum Light.ttf'])GlobalFonts.registerFromPath(fileURLToPath(new URL('./fonts/'+file,import.meta.url)));
 const fail=message=>Object.assign(new Error(message),{status:400});
 const leaves=(layers,prefix='')=>layers.flatMap((layer,i)=>layer.hidden?[]:layer.children?leaves(layer.children,prefix+i+'.'):[{layer,id:prefix+i}]);
 export function readCompletionTemplate(buffer){
