@@ -71,13 +71,25 @@ class BrowserBridge {
   }
   async frame(selector,urlContains=''){
     if(!this.window||this.window.isDestroyed())throw Object.assign(new Error('설정에서 네이버 연결을 열고 로그인해 주세요.'),{status:401});
-    for(const f of this.window.webContents.mainFrame.framesInSubtree){try{if(await f.executeJavaScript(`Boolean(document.querySelector(${JSON.stringify(selector)})) && location.href.includes(${JSON.stringify(urlContains)})`))return f;}catch{}}
+    this.operationSignal?.throwIfAborted();
+    for(const f of this.window.webContents.mainFrame.framesInSubtree){try{if(urlContains&&f.url&&!f.url.includes(urlContains))continue;if(await this.readFrame(f,`Boolean(document.querySelector(${JSON.stringify(selector)})) && location.href.includes(${JSON.stringify(urlContains)})`))return f;}catch(error){if(this.operationSignal?.aborted)throw error;}}
     return null;
   }
-  async evaluate(fn,arg,{selector,urlContains=''}={}){
+  async readFrame(frame,source,timeout=5000){
+    const signal=this.operationSignal,window=this.window;signal?.throwIfAborted();let timer,abort,closed;
+    const interrupted=new Promise((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error('네이버 화면 읽기 시간이 초과되었습니다. 다시 조회해 주세요.')),timeout);
+      abort=()=>reject(signal.reason);closed=()=>reject(new Error('네이버 창이 닫혀 화면 읽기를 중단했습니다.'));
+      signal?.addEventListener('abort',abort,{once:true});window?.once?.('closed',closed);
+    });
+    try{return await Promise.race([frame.executeJavaScript(source),interrupted]);}
+    finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);window?.off?.('closed',closed);}
+  }
+  async evaluate(fn,arg,{selector,urlContains='',readOnly=false}={}){
     const f=selector?await this.frame(selector,urlContains):this.window?.webContents.mainFrame;
     if(!f)throw Object.assign(new Error('네이버 화면을 읽을 수 없습니다. 로그인 또는 화면 변경을 확인해 주세요.'),{status:422});
-    return f.executeJavaScript(`(${fn.toString()})(${JSON.stringify(arg??null)})`);
+    const source=`(${fn.toString()})(${JSON.stringify(arg??null)})`;
+    return readOnly?this.readFrame(f,source):f.executeJavaScript(source);
   }
   async waitFor(selector,timeout=18000,{urlContains=''}={}){
     const start=Date.now();while(Date.now()-start<timeout){const f=await this.frame(selector,urlContains);if(f)return f;await sleep(250);}
@@ -171,7 +183,7 @@ class BrowserBridge {
   }
   async snapshot(){
     if(!this.window)return null;
-    const frames=[];for(const f of this.window.webContents.mainFrame.framesInSubtree){try{frames.push(await f.executeJavaScript(`({url:location.href,title:document.title,text:document.body.innerText.slice(0,12000)})`));}catch{}}return frames;
+    const frames=[];for(const f of this.window.webContents.mainFrame.framesInSubtree){try{frames.push(await this.readFrame(f,`({url:location.href,title:document.title,text:document.body.innerText.slice(0,12000)})`));}catch{if(this.operationSignal?.aborted)throw this.operationSignal.reason;}}return frames;
   }
   async status(expectedBlogId='',{verify=false}={}){
     this.expectedBlogId=expectedBlogId;
@@ -179,7 +191,7 @@ class BrowserBridge {
     try{
       const evidence=[];
       for(const frame of this.window.webContents.mainFrame.framesInSubtree){
-        try{evidence.push(await frame.executeJavaScript(`(() => {
+        try{evidence.push(await this.readFrame(frame,`(() => {
           const links=[...document.querySelectorAll('a')];
           const write=links.find(a=>/PostWriteForm|\\/postwrite|Redirect=Write/.test(a.href)||a.textContent.trim()==='글쓰기');
           const href=write?.href||'';const query=href.match(/[?&]blogId=([^&]+)/);const path=href.match(/blog\\.naver\\.com\\/([^/?#]+)\\/(?:postwrite)|blog\\.naver\\.com\\/([^/?#]+)\\?Redirect=Write/i);

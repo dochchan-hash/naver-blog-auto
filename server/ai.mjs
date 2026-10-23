@@ -1,6 +1,5 @@
 import {cafeScopeCurrent,cafeScopeSignature} from '../shared/template-fields.mjs';
 import {cafeImageData} from './cafe-images.mjs';
-const scopeSelectionSchema=z.object({images:z.array(z.number().int().min(0)).max(20)});
 const scopeImageSchema=z.object({location:z.string().max(300),area:z.string().max(100),concept:z.string().max(300),scopeProject:z.string().max(300),scopeCopyright:z.string().max(300),rows:z.array(z.object({label:z.string().min(1).max(300),value:z.string().min(1).max(4000),field:z.enum(['wall','floor','other'])})).max(100),warnings:z.array(z.string())});
 import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
@@ -109,32 +108,24 @@ export class AI {
   }
   async readCafeScope(projectId,update=()=>{}){
     let project=this.store.get('project',projectId);
-    if(cafeScopeCurrent(project))return project.cafeScope;
+    if(cafeScopeCurrent(project)&&project.cafeScope.readVersion===2)return project.cafeScope;
     if(!project.cafeUrl.trim())throw error('공사범위 사진이 첨부된 카페 마감글 링크를 입력해 주세요.',400);
-    update({message:'카페에 첨부된 사진에서 공사범위 표를 찾습니다.',progress:5});
+    update({message:'카페 도입부 인용구 다음의 공사범위 사진을 확인합니다.',progress:5});
     const source=await this.browser.readPost(validateNaverUrl(project.cafeUrl,'cafe'));
     if(!project.sourceText.trim()&&source.text?.trim())project=this.store.updateProject(projectId,{sourceText:source.text,sourceReview:null});
     const urls=[...new Set(source.images||[])];
     if(!urls.length)throw error('카페 마감글의 첨부 사진을 읽지 못했습니다. 링크와 로그인 권한을 확인해 주세요. 공사범위를 본문 요약으로 대신 채우지 않습니다.');
-    if(urls.length>60)throw error('카페 첨부 사진이 60장을 넘습니다. 공사범위 사진을 별도 게시글로 첨부해 주세요.');
     const named=urls.filter(url=>{try{return /공사.*(?:범위|내역)|시공.*내역|interior.?plan/i.test(decodeURIComponent(new URL(url).pathname));}catch{return false;}});
-    const candidates=named.length?named:urls,images=[],warnings=[];
-    for(let i=0;i<candidates.length;i++){
-      checkCancelled();update({message:`카페 첨부 사진 확인 ${i+1}/${candidates.length}`,progress:5+Math.round(i/candidates.length*25)});
-      try{images.push({url:candidates[i],...(!named.length?{data:await this.cafeImage(candidates[i],512)}:{})});}catch(e){checkCancelled();warnings.push(`첨부 사진 ${i+1}: ${e.message}`);}
-    }
-    if(!images.length)throw error(warnings[0]||'카페 첨부 사진을 불러오지 못했습니다.');
-    const selection=named.length?{images:images.map((_,i)=>i)}:scopeSelectionSchema.parse(await this.call('첨부 사진 중 공사범위 표/공사시공내역/INTERIOR PLAN이 있는 사진 번호만 선택하세요. 현장 인테리어 사진, 도면, 표지는 제외합니다. 표의 제목이 없어도 공정·구분·내용·비고와 도배/가구/욕실 등의 행이 있으면 선택하세요. 여러 장으로 이어진 공사범위는 모두 선택하세요. 번호는 각 이미지 앞의 0부터 시작하는 번호입니다. 없으면 images:[]입니다.',images.flatMap((image,i)=>[{type:'input_text',text:`사진 번호 ${i}`},{type:'input_image',image_url:image.data,detail:'low'}]),{analysis:true,schema:scopeSelectionSchema}));
-    const selected=[...new Set(selection.images)];
-    if(!selected.length||selected.some(i=>!images[i]))throw error('카페 사진에서 공사범위 표를 확인하지 못했습니다. 공사범위가 있는 사진을 첨부해 주세요.');
+    const selected=(source.scopeImages?.length?source.scopeImages:named).slice(0,1);
+    if(!selected.length)throw error('카페 도입부 인용구 다음에서 공사범위 사진을 찾지 못했습니다. 원본 글의 사진 위치를 확인해 주세요.');
     update({message:'공사범위 사진의 모든 공정과 내용을 원문 그대로 읽습니다.',progress:40});
     const content=[];
-    for(const i of selected){checkCancelled();content.push({type:'input_image',image_url:await this.cafeImage(images[i].url,2400),detail:'high'});}
+    for(const url of selected){checkCancelled();content.push({type:'input_image',image_url:await this.cafeImage(url,2400),detail:'high'});}
     const result=scopeImageSchema.parse(await this.call('공사범위 사진을 그대로 전사하세요. 모든 채워진 공정/구분 행을 rows에 원래 순서대로 빠짐없이 넣고 label은 항목명, value는 내용과 해당 행의 시공 관련 비고를 띄어쓰기·제품명·규격·쉼표까지 원문 그대로 적으세요. 요약, 문장 바꾸기, 사진이나 카페 본문으로 추측/보완 금지. 체크 표시는 제거하되 체크 안 된 행도 내용이 있으면 모두 포함합니다. 행이 여러 줄이면 줄바꿈을 보존합니다. field는 벽지/도배/벽면=wall, 바닥/마루/장판=floor, 나머지 모든 공정=other. 위치·면적·콘셉트가 이미지에 명시되어 있으면 각각 location/area/concept로 원문 그대로 적고 없으면 빈 문자열. 이미지 하단의 프로젝트 문구(Project No.와 뒤의 식별번호 전체)는 scopeProject, 저작권 문구는 scopeCopyright에 기호·대소문자·숫자·밑줄·구두점·띄어쓰기까지 원문 그대로 전사하세요. 이 두 문구는 시공 행이 아니므로 rows에 넣지 마세요. 프로젝트 번호를 현장명으로 바꾸거나 저작권 연도·상호를 새로 만들지 마세요. 이미지에 문구가 없으면 빈 문자열, 흐려서 읽을 수 없으면 빈 문자열과 warnings에 사유를 남기세요. 빈 행, 공사금액, 담당자·고객 정보, 출입 비밀번호, 계좌·연락처, 촬영 일정은 공사범위가 아니므로 제외합니다. 읽을 수 없는 글자는 추정하지 말고 warnings에 행과 사유를 쓰세요. 서로 다른 문서를 합치지 말고 현재 현장의 공사범위만 읽습니다.',content,{analysis:true,schema:scopeImageSchema}));
     if(!result.rows.length)throw error('공사범위 사진의 시공 항목을 읽지 못했습니다. 사진 해상도를 확인해 주세요.');
     checkCancelled();const latest=this.store.get('project',projectId);
     if(latest.cafeUrl!==project.cafeUrl||latest.sourceText!==project.sourceText)throw error('공사범위를 읽는 중 카페 원본이 변경되었습니다. 새 원본으로 다시 시도해 주세요.');
-    const cafeScope={...result,signature:cafeScopeSignature(latest),imageUrls:selected.map(i=>images[i].url),checkedAt:new Date().toISOString(),warnings:[...warnings,...result.warnings]};
+    const cafeScope={...result,readVersion:2,signature:cafeScopeSignature(latest),imageUrls:selected,checkedAt:new Date().toISOString()};
     this.store.updateProject(projectId,{cafeScope});return cafeScope;
   }
   async analyzeMaterials(projectId,update){

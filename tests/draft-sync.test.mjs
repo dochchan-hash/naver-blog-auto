@@ -11,12 +11,12 @@ const source=ts.transpileModule(await fs.readFile('src/App.tsx','utf8'),{compile
 function appHarness(api,options={}){
   const project=options.project||{...newProject('draft'),phase:'write',blocks:[{id:'intro',kind:'text',text:'소개'},{id:'heading',kind:'quote',space:'현관',text:'현관'},{id:'body',kind:'text',space:'현관',text:'직접 수정할 설명'}]},data={projects:[project],assets:[],jobs:[],auth:{connected:true},browser:{},settings:{},style:{},...options.data};
   const callbacks=[],refs=[],states=[];let stateIndex=0;
-  const hooks={useCallback:fn=>(callbacks.push(fn),fn),useEffect:()=>{},useRef:value=>{const ref={current:refs.length===2?project:value};refs.push(ref);return ref;},useState:initial=>{const i=stateIndex++,value=i===0?data:i===1?project:initial;states[i]=value;return [value,next=>states[i]=typeof next==='function'?next(states[i]):next];}};
+  const hooks={useCallback:fn=>(callbacks.push(fn),fn),useEffect:()=>{},useRef:value=>{const ref={current:refs.length===1?project:value};refs.push(ref);return ref;},useState:initial=>{const i=stateIndex++,value=i===0?data:i===1?project:initial;states[i]=value;return [value,next=>states[i]=typeof next==='function'?next(states[i]):next];}};
   const components=new Proxy({},{get:(_,name)=>String(name)}),module={exports:{}};
   vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='./api'?{api}:name==='../shared/format.mjs'?{}:name==='../shared/domain.mjs'?domain:name==='../shared/sources.mjs'?{}:components,localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout,clearTimeout,Date,console});
   const tree=module.exports.default();
   const find=node=>{if(!node||typeof node!=='object')return null;if(node.type==='WriteStep')return node;for(const child of [node.props?.children].flat(Infinity)){const match=find(child);if(match)return match;}return null;};
-  return {data,project,tree,update:callbacks[1],save:callbacks[2],refresh:callbacks[3],task:find(tree)?.props.task,onFiles:find(tree)?.props.onFiles,current:refs[2],states};
+  return {data,project,tree,update:callbacks[1],save:callbacks[2],refresh:callbacks[3],task:find(tree)?.props.task,onFiles:find(tree)?.props.onFiles,current:refs[1],states};
 }
 test('저장 도중 반복해서 바꾼 순서와 본문까지 모두 저장한 후 그 버전으로 네이버 준비를 시작한다',async()=>{
   const pending=[],tasks=[];const app=appHarness({saveProject:p=>{const wait=deferred();pending.push({snapshot:p,wait});return wait.promise;},task:async(...args)=>(tasks.push(args),{id:'job',status:'running'})});

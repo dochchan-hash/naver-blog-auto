@@ -16,7 +16,7 @@ async function harness(file,exportName,props,api){
   const states=[],refs=[],effects=[];let stateIndex=0,refIndex=0,effectIndex=0,pending=[];
   const hooks={useState:value=>{const i=stateIndex++;if(!(i in states))states[i]=value;return [states[i],next=>states[i]=typeof next==='function'?next(states[i]):next];},useRef:value=>refs[refIndex++]|| (refs[refIndex-1]={current:value}),useEffect:(fn,deps)=>{const i=effectIndex++;if(!effects[i]||deps.some((d,j)=>!Object.is(d,effects[i].deps[j])))pending.push(()=>{effects[i]?.cleanup?.();effects[i]={deps,cleanup:fn()};});}};
   const module={exports:{}},components=new Proxy({},{get:(_,name)=>name==='bytes'?value=>String(value):String(name)});
-  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},Date,console});
+  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},setTimeout,clearTimeout,Date,console});
   return {render:(component=module.exports[exportName])=>{stateIndex=refIndex=effectIndex=0;pending=[];const tree=component(props);pending.forEach(fn=>fn());return tree;}};
 }
 test('작성 스타일에서 추천글과 시공사례의 링크·규칙·서식을 따로 편집하고 저장한다',async()=>{
@@ -40,6 +40,22 @@ test('시공사례 첫 단계에 카페 원본 입력란을 표시하고 링크 
   api.readPost=async url=>{assert.equal(url,props.project.cafeUrl);return {text:'새 현장의 공사 완료 원본'};};tree=app.render(component);await button(tree,'마감글 불러오기').props.onClick();assert.equal(props.project.sourceText,'새 현장의 공사 완료 원본');
   api.readPost=async()=>({text:''});tree=app.render(component);await button(tree,'마감글 불러오기').props.onClick();assert.equal(props.project.sourceText,'새 현장의 공사 완료 원본');assert.match(messages.at(-1),/본문을 읽지 못/);tree=app.render(component);assert.equal(button(tree,'마감글 불러오기').props.busy,false);
 });
+test('다른 작업이 끝나도 같은 현장의 실패한 자동 조회를 반복하지 않고 직접 재조회할 수 있다',async()=>{
+  const props={project:newProject('lookup','case'),assets:[],busy:false,which:'original',update:patch=>{props.project={...props.project,...patch};}},calls=[];
+  const app=await harness('src/components/Sites.tsx','SiteStep',props,{search:async query=>{calls.push(query);throw Error('조회 실패');}}),component=nodes(app.render()).find(n=>n.type?.name==='ApartmentCard').type;
+  props.project.original.name='시티프라디움3차';app.render(component);await new Promise(r=>setTimeout(r,1100));assert.equal(calls.length,1);
+  props.busy=true;app.render(component);props.busy=false;let tree=app.render(component);await new Promise(r=>setTimeout(r,1100));assert.equal(calls.length,1);
+  await button(tree,'네이버 부동산에서 조회').props.onClick();assert.equal(calls.length,2);
+  props.project.original.name='새 현장';app.render(component);await new Promise(r=>setTimeout(r,1100));assert.equal(calls.length,3);
+});
+
+test('비슷한 이름의 추천 후보는 하나만 있어도 자동 선택하지 않는다',async()=>{
+  let selected=0;const props={project:newProject('similar','case'),assets:[],busy:false,which:'original',update:patch=>{props.project={...props.project,...patch};}};
+  const app=await harness('src/components/Sites.tsx','SiteStep',props,{search:async()=>({results:[{name:'아파트 문래대림 서울시 영등포구',key:'similar',suggested:true}]}),selectComplex:async()=>{selected++;}}),component=nodes(app.render()).find(n=>n.type?.name==='ApartmentCard').type;
+  props.project.original.name='문래대륌';props.project.original.region='서울시 영등포구';let tree=app.render(component);await button(tree,'네이버 부동산에서 조회').props.onClick();tree=app.render(component);
+  assert.equal(selected,0);assert(nodes(tree).some(n=>n.type==='p'&&label(n).includes('비슷한 단지를 추천')));assert(button(tree,'아파트 문래대림 서울시 영등포구'));
+});
+
 test('사진 단계에서 사진을 먼저 첨부하고 미리보기 옆에서 문구를 수정하며 이전 JPG 내려받기를 막는다',async()=>{
   const tasks=[],props={project:{...newProject('case','case'),original:{...newProject().original,name:'시공 현장'},coverTemplateId:'psd'},assets:[{id:'photo',role:'photo',status:'ready',excluded:false,filename:'거실.jpg',space:'거실',order:0,hash:'photo'}],busy:false,update:patch=>{props.project={...props.project,...patch};},onFiles:()=>{},task:kind=>tasks.push(kind),patchAssets:async()=>{},notify:()=>{}};
   const step=await harness('src/components/Assets.tsx','AssetsStep',props,{}),tree=step.render(),children=tree.props.children;
@@ -47,7 +63,7 @@ test('사진 단계에서 사진을 먼저 첨부하고 미리보기 옆에서 �
   const app=await harness('src/components/TemplateEditor.tsx','TemplateEditor',props,{});let editor=app.render();assert.equal(nodes(editor).find(n=>n.type==='details').props.open,false);
   const field=text=>nodes(editor).find(n=>n.type==='Field'&&n.props.label===text).props.children;
   field('표지 현장명').props.onChange({target:{value:'미리보기에서 수정한 이름'}});editor=app.render();assert.equal(field('표지 현장명').props.value,'미리보기에서 수정한 이름');
-  field('하단 프로젝트 문구').props.onChange({target:{value:'Project · 수정한 문구'}});editor=app.render();field('하단 저작권 문구').props.onChange({target:{value:'© 2030. 수정한 저작권'}});editor=app.render();assert.equal(field('하단 프로젝트 문구').props.value,'Project · 수정한 문구');assert.equal(field('하단 저작권 문구').props.value,'© 2030. 수정한 저작권');assert.deepEqual(tasks,[]);button(editor,'수정 변경하기').props.onClick();assert.deepEqual(tasks,['templates']);
+  field('하단 프로젝트 문구').props.onChange({target:{value:'Project · 수정한 문구'}});editor=app.render();field('하단 저작권 문구').props.onChange({target:{value:'© 2030. 수정한 저작권'}});editor=app.render();assert.equal(field('하단 프로젝트 문구').props.value,'Project · 수정한 문구');assert.equal(field('하단 저작권 문구').props.value,'© 2030. 수정한 저작권');assert.deepEqual(tasks,[]);button(editor,'표지·공사범위 만들기 시작').props.onClick();assert.deepEqual(tasks,['templates']);
   props.project.cafeScope={signature:templateFields.cafeScopeSignature(props.project),location:'',area:'',concept:'',rows:[],warnings:[],scopeProject:'Project No. 12AB3456_7890C1234',scopeCopyright:'ⓒ 2025. LEMONHOUSE ALL rights reserved.'};
   editor=app.render();button(editor,'카페 원본 내용으로 되돌리기').props.onClick();editor=app.render();assert.equal(field('하단 프로젝트 문구').props.value,props.project.cafeScope.scopeProject);assert.equal(field('하단 저작권 문구').props.value,props.project.cafeScope.scopeCopyright);assert.equal(field('표지 현장명').props.value,'미리보기에서 수정한 이름');assert.deepEqual(tasks,['templates']);
   props.assets.push({id:'cover',role:'photo',templateOutput:'cover',status:'ready',excluded:false,previewUrl:'/preview.jpg',originalUrl:'/original.jpg',templateSignature:'old'});editor=app.render();let download=nodes(editor).find(n=>n.type==='a'&&n.props.download);assert.equal(download.props.href,undefined);assert.equal(download.props['aria-disabled'],true);

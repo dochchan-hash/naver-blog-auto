@@ -5,6 +5,12 @@ import {readPublicationSettings} from '../shared/naver-controls.mjs';
 import {readReferenceFormat,formatFor,editorFormatMatches,blockTextStyles,blockTextLines} from '../shared/format.mjs';
 const fail=(message,status=422)=>Object.assign(new Error(message),{status});
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const complexName=t=>t.replace(/\s*(?:아파트|apt)$/i,'').replace(/\s/g,'').toLowerCase();
+function nameDistance(a,b){
+  let row=Array.from({length:b.length+1},(_,i)=>i);
+  for(let i=1;i<=a.length;i++){const next=[i];for(let j=1;j<=b.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+Number(a[i-1]!==b[j-1]));row=next;}
+  return row[b.length];
+}
 const kstMinute=iso=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(iso)).replaceAll('-','.');
 export function postIdentity(url,blogId){try{const u=new URL(url);if(u.origin!=='https://blog.naver.com')return '';const parts=u.pathname.split('/');if(parts[1]===blogId&&/^\d+$/.test(parts[2]||''))return parts[2];return u.searchParams.get('blogId')===blogId&&/^\d+$/.test(u.searchParams.get('logNo')||'')?u.searchParams.get('logNo'):'';}catch{return '';}}
 export function editorMatches(project,state){const normalize=t=>(t||'').replace(/[\s\u200B\uFEFF]/g,'');return state.title===project.title&&JSON.stringify(state.photoBlocks)===JSON.stringify(project.blocks.filter(b=>b.kind==='photos').map(b=>b.assetIds.length))&&project.blocks.filter(b=>['text','heading','quote'].includes(b.kind)).every(b=>normalize(state.text).includes(normalize(b.text)));}
@@ -40,14 +46,18 @@ export class Naver {
         const root=document.querySelector('.se-main-container,.ContentRenderer,#article-area');
         const text=root?.innerText||'';
         const photoGroups=[...root?.querySelectorAll('.se-imageGroup,.se-image')||[]].filter(el=>!el.parentElement?.closest('.se-imageGroup')).map(el=>({count:el.querySelectorAll('img').length,layout:el.className,ratios:[...el.querySelectorAll('img')].map(img=>{const r=img.getBoundingClientRect();return r.height?r.width/r.height:0;})}));
-        const images=[...new Set([...root?.querySelectorAll('img')||[]].map(img=>img.getAttribute('data-original')||img.getAttribute('data-src')||img.currentSrc||img.src).filter(Boolean).map(src=>{try{return new URL(src,document.baseURI).href;}catch{return '';}}).filter(src=>/^https:\/\/[^/]+\.pstatic\.net\//.test(src)))];
-        return {title:document.title,text,photoGroups,images};
-      },null,{selector:selectors,urlContains:postId});
-        const signature=JSON.stringify([result.text,result.images]);stable=signature===previous?stable+1:0;previous=signature;
+        const imageUrls=el=>[...new Set([...el?.querySelectorAll('img')||[]].map(img=>img.getAttribute('data-original')||img.getAttribute('data-src')||img.currentSrc||img.src).filter(Boolean).map(src=>{try{return new URL(src,document.baseURI).href;}catch{return '';}}).filter(src=>/^https:\/\/[^/]+\.pstatic\.net\//.test(src)))];
+        const images=imageUrls(root),components=[...root?.querySelectorAll('.se-component')||[]].filter(c=>!c.parentElement?.closest('.se-component'));
+        // 지도 타일과 인용구 종류에 영향받지 않도록 대표사진 다음 사진을 읽습니다.
+        const scopePhoto=components.filter(c=>c.matches('.se-image,.se-imageGroup'))[1];
+        const scopeImages=imageUrls(scopePhoto).slice(0,1);
+        return {title:document.title,text,photoGroups,images,scopeImages};
+      },null,{selector:selectors,urlContains:postId,readOnly:true});
+        const signature=JSON.stringify([result.text,isCafe&&result.scopeImages?.length?result.scopeImages:result.images]);stable=signature===previous?stable+1:0;previous=signature;
         if(stable>=3)break;await pause(300);
       }while(Date.now()<until);
       if(!result.text.trim())throw fail('게시글 본문을 읽지 못했습니다. 로그인 권한을 확인하거나 본문을 직접 입력해 주세요.');
-      const formatProfile=!isCafe&&postId?await bridge.evaluate(readReferenceFormat,null,{selector:selectors,urlContains:postId}):null;
+      const formatProfile=!isCafe&&postId?await bridge.evaluate(readReferenceFormat,null,{selector:selectors,urlContains:postId,readOnly:true}):null;
       return {...result,url,formatProfile};
   }
   async searchComplex(query){
@@ -55,28 +65,39 @@ export class Naver {
     return this.exclusive(()=>this.searchCandidates(query));
   }
   async searchCandidates(query){
-      const bridge=this.requireBridge();
+      const bridge=this.requireBridge(),keyword=query.trim().replace(/\s*(?:아파트|apt)$/i,'').replace(/\s+/g,' ').trim();
+      if(!keyword)throw fail('아파트명을 입력해 주세요.',400);
+      if(keyword.length>100)throw fail('아파트명은 100자 이내로 입력해 주세요.',400);
       await bridge.goto('https://fin.land.naver.com/home');
       await bridge.click('button',{text:'단지, 주소, 지하철, 초등학교 검색'});
-      const selector='input[placeholder*="검색"],input[placeholder*="단지"],input[type="search"]';
-      await bridge.waitFor(selector);await bridge.text(selector,query);
-      await pause(1200);
-      const list=await bridge.evaluate(()=>{
+      const selector='#header-search';
+      await bridge.waitFor(selector);let state,search=keyword;
+      for(let attempt=0;attempt<3;attempt++){
+      await bridge.text(selector,search);const started=Date.now(),until=started+12000;
+      do{checkCancelled();state=await bridge.evaluate(keyword=>{
         const normalize=t=>t.replace(/\s+/g,' ').trim();
-        return [...document.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width>0).map(b=>({name:normalize(b.innerText)})).filter(x=>/^(?:아파트|오피스텔|주상복합|연립|빌라)\s+\S/.test(x.name)&&x.name.length>8);
-      },null);
-      const seen=new Set();const unique=list.filter(x=>{if(seen.has(x.name))return false;seen.add(x.name);return true;}).map(x=>{const key=randomUUID();this.searches.set(key,{query,label:x.name});return {...x,key,label:x.name};});
-      if(!unique.length)throw fail('자동 검색 결과를 읽지 못했습니다. 열린 네이버 화면에서 단지를 선택한 뒤 단지 링크를 입력하거나 도면을 직접 첨부해 주세요.');
+        const compact=t=>normalize(t).replace(/\s/g,'').toLowerCase(),input=document.querySelector('#header-search'),root=input?.parentElement?.parentElement;
+        const list=input?.value===keyword?[...root?.querySelectorAll('button')||[]].filter(b=>b.getBoundingClientRect().width>0).map(b=>({name:normalize(b.innerText),complexName:normalize(b.querySelector('[class*="SearchResultList"][class*="__name"]')?.textContent||''),address:normalize(b.querySelector('[class*="SearchResultList"][class*="__address"]')?.textContent||'')})).filter(x=>x.complexName&&x.address&&/^(?:아파트|재건축|오피스텔|주상복합|연립|빌라|도시형생활주택)\s/.test(x.name)&&compact(x.name).includes(compact(keyword))):[];
+        return {list,empty:input?.value===keyword&&/검색 결과가 없습니다/.test(root?.innerText||'')};
+      },search,{selector,readOnly:true});if(state.list.length||state.empty&&Date.now()-started>=2000)break;await pause(250);}while(Date.now()<until);
+      const next=attempt===0?complexName(keyword).slice(0,-1):complexName(keyword).slice(0,2);
+      if(state.list.length||!state.empty||complexName(keyword).length<=2||next===search)break;
+      search=next;
+      }
+      const list=state.list;
+      list.sort((a,b)=>nameDistance(complexName(keyword),complexName(a.complexName))-nameDistance(complexName(keyword),complexName(b.complexName)));
+      const seen=new Set();const unique=list.filter(x=>{if(seen.has(x.name))return false;seen.add(x.name);return true;}).map(x=>{const key=randomUUID();this.searches.set(key,{query:search,label:x.name,complexName:x.complexName});return {...x,key,label:x.name,suggested:complexName(x.complexName)!==complexName(keyword)};});
+      if(!unique.length)throw fail(state.empty?`‘${query}’에 해당하는 단지를 네이버에서 찾지 못했습니다. 아파트명과 차수를 확인해 주세요.`:'네이버 단지 검색 결과가 준비되지 않았습니다. 잠시 후 다시 조회해 주세요.');
       return unique;
   }
   async selectComplex(key){
     const choice=this.searches.get(key);if(!choice)throw fail('검색 결과가 만료되었습니다. 단지를 다시 검색해 주세요.',400);
     const bridge=this.requireBridge();return this.exclusive(async()=>{
       await this.searchCandidates(choice.query);
-      const clicked=await bridge.evaluate(label=>{const b=[...document.querySelectorAll('button')].find(b=>b.innerText.replace(/\s+/g,' ').trim()===label);if(!b)return false;b.click();return true;},choice.label);
+      const clicked=await bridge.evaluate(label=>{const root=document.querySelector('#header-search')?.parentElement?.parentElement;const b=[...root?.querySelectorAll('button')||[]].find(b=>b.getBoundingClientRect().width>0&&b.innerText.replace(/\s+/g,' ').trim()===label);if(!b)return false;b.click();return true;},choice.label,{selector:'#header-search'});
       if(!clicked)throw fail('검색 결과가 바뀌었습니다. 단지를 다시 선택해 주세요.');
-      await pause(1000);
-      const url=await bridge.evaluate(label=>[...document.querySelectorAll('a[href*="/complexes/"]')].find(a=>a.textContent.trim().length>1&&label.includes(a.textContent.trim()))?.href,choice.label);
+      const until=Date.now()+12000;let url;
+      do{checkCancelled();url=await bridge.evaluate(name=>{const root=document.querySelector('main,[role="main"],#content')||document.body;return [...root.querySelectorAll('a[href*="/complexes/"]')].find(a=>a.getBoundingClientRect().width>0&&a.textContent.replace(/\s/g,'')===name.replace(/\s/g,''))?.href;},choice.complexName,{readOnly:true});if(url)break;await pause(250);}while(Date.now()<until);
       if(!url)throw fail('단지 상세 주소를 확인하지 못했습니다. 네이버 창에서 상세 링크를 복사해 입력해 주세요.');
       return this.complexDetails(url);
     });

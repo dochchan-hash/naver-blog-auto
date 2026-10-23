@@ -5,10 +5,10 @@ import {api} from '../api';
 import {Field,SectionTitle,Button,Notice,Dropzone,Next} from './Common';
 import {ConstructionSources} from './Construction';
 type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<void>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
-type Candidate={name:string;url?:string;label?:string;key?:string};
+type Candidate={name:string;url?:string;label?:string;key?:string;suggested?:boolean};
 const pyeong=(area:string)=>Number(area)>0?`${(Number(area)/3.305785).toFixed(1)}평`:'';
 function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Props&{which:'original'|'target'}){
-  const isCase=project.postType==='case',site=project[which],latest=useRef(site),sequence=useRef(0),mounted=useRef(true);latest.current=site;
+  const isCase=project.postType==='case',site=project[which],latest=useRef(site),sequence=useRef(0),mounted=useRef(true),lastLookup=useRef('');latest.current=site;
   const [loading,setLoading]=useState(false),[results,setResults]=useState<Candidate[]>([]),[error,setError]=useState('');
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;sequence.current++;};},[]);
   const valid=(n:number)=>mounted.current&&sequence.current===n;
@@ -19,12 +19,12 @@ function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Prop
     catch(e){if(valid(n))setError((e as Error).message);}finally{if(valid(n))setLoading(false);}
   };
   const lookup=async()=>{
-    const n=++sequence.current,query=latest.current.name.trim();setLoading(true);setError('');setResults([]);
-    try{const res=await api.search(query);if(!valid(n))return;const tokens=latest.current.region.split(/\s+/).filter(Boolean).map(t=>t.replace(/(?:특별자치시|특별시|광역시|시|군|구)$/,''));const matches=res.results.filter(r=>tokens.every(t=>(r.label||r.name).includes(t)));if(matches.length===1)await choose(matches[0],n);else{setResults(matches.length?matches:res.results);if(!matches.length)setError('입력한 지역과 일치하는 주소를 찾지 못했습니다. 조회된 주소를 확인하고 현장을 선택해 주세요.');}}
+    const n=++sequence.current,query=latest.current.name.trim();lastLookup.current=JSON.stringify([project.id,latest.current.name,latest.current.region]);setLoading(true);setError('');setResults([]);
+    try{const res=await api.search(query);if(!valid(n))return;const tokens=latest.current.region.split(/\s+/).filter(Boolean).map(t=>t.replace(/(?:특별자치시|특별시|광역시|시|군|구)$/,''));const matches=res.results.filter(r=>tokens.every(t=>(r.label||r.name).includes(t)));if(matches.length===1&&!matches[0].suggested)await choose(matches[0],n);else{setResults(matches.length?matches:res.results);if(!matches.length)setError('입력한 지역과 일치하는 주소를 찾지 못했습니다. 조회된 주소를 확인하고 현장을 선택해 주세요.');}}
     catch(e){if(valid(n))setError((e as Error).message);}finally{if(valid(n))setLoading(false);}
   };
-  useEffect(()=>{if(!site.name.trim()||site.sourceUrl||busy)return;const timer=setTimeout(()=>{void lookup();},1000);return()=>clearTimeout(timer);},[site.name,site.region,site.sourceUrl,busy]);
-  const changeInput=(key:'name'|'region',value:string)=>{sequence.current++;setLoading(false);setResults([]);setError('');update({[which]:{...site,[key]:value,type:'',supplyArea:'',exclusiveArea:'',sourceUrl:'',details:undefined,floorplanAssetId:''},comparison:null});};
+  useEffect(()=>{if(!site.name.trim()||site.sourceUrl||busy||lastLookup.current===JSON.stringify([project.id,site.name,site.region]))return;const timer=setTimeout(()=>{void lookup();},1000);return()=>clearTimeout(timer);},[project.id,site.name,site.region,site.sourceUrl,busy]);
+  const changeInput=(key:'name'|'region',value:string)=>{sequence.current++;lastLookup.current='';setLoading(false);setResults([]);setError('');update({[which]:{...site,[key]:value,type:'',supplyArea:'',exclusiveArea:'',sourceUrl:'',details:undefined,floorplanAssetId:''},comparison:null});};
   const selectType=async(type:string)=>{
     const n=++sequence.current;setLoading(true);setError('');update({[which]:{...site,type,supplyArea:'',exclusiveArea:'',floorplanAssetId:''},comparison:null});
     try{const res=await api.complex(site.sourceUrl,type);if(!valid(n))return;apply(res,true);if(res.images[0]){const a=await api.floorplan(project.id,`floorplan-${which}`,res.images[0].url);if(valid(n))apply(res,true,a.id);}}
@@ -37,7 +37,7 @@ function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Prop
     <Field label="아파트명"><input value={site.name} onChange={e=>changeInput('name',e.target.value)} placeholder="예: 메트로시티"/></Field><Field label="지역 · 선택 사항"><input value={site.region} onChange={e=>changeInput('region',e.target.value)} placeholder="예: 창원시 양덕동"/></Field>
     <Button className="secondary full" busy={loading} disabled={!site.name.trim()||busy} onClick={lookup}><Search size={15}/>{site.details?'단지 다시 조회':'네이버 부동산에서 조회'}</Button><small className="lookup-hint">아파트명만 입력해도 조회합니다. 같은 이름이 있으면 주소를 확인해 선택하세요.</small>
     {error?<Notice tone="warning">{error}</Notice>:null}
-    {results.length?<div className="search-results"><p>주소를 확인하고 해당 단지를 선택해 주세요.</p>{results.map(r=><button key={r.key||r.url||r.label} onClick={()=>choose(r)} disabled={loading||busy}>{r.name}<ArrowRight size={14}/></button>)}</div>:null}
+    {results.length?<div className="search-results"><p>{results.every(r=>r.suggested)?'정확히 일치하는 이름이 없어 비슷한 단지를 추천합니다. 주소를 확인하고 선택해 주세요.':'주소를 확인하고 해당 단지를 선택해 주세요.'}</p>{results.map(r=><button key={r.key||r.url||r.label} onClick={()=>choose(r)} disabled={loading||busy}>{r.name}<ArrowRight size={14}/></button>)}</div>:null}
     {site.details?<><Field label="평형 · 타입 선택" hint="실제 현장에 해당하는 타입을 선택하세요."><select value={site.type} disabled={loading||busy} onChange={e=>{if(e.target.value)void selectType(e.target.value);}}><option value="">타입을 선택해 주세요</option>{site.details.types.map(t=><option key={t} value={t}>{t} · 공급 약 {pyeong(String(parseFloat(t)))}</option>)}</select></Field>
       <div className="apartment-metrics"><div><small>공급면적</small><strong>{site.supplyArea?`${site.supplyArea}㎡`:'타입 선택 후 표시'}</strong>{site.supplyArea?<span>약 {pyeong(site.supplyArea)}</span>:null}</div><div><small>전용면적</small><strong>{site.exclusiveArea?`${site.exclusiveArea}㎡`:'타입 선택 후 표시'}</strong>{site.exclusiveArea?<span>약 {pyeong(site.exclusiveArea)}</span>:null}</div></div><small className="lookup-hint">㎡와 타입은 네이버 조회값입니다. 평 표시는 ㎡에서 환산한 참고값입니다.</small>
       <details className="complex-info"><summary>네이버 단지·타입 정보 전체 보기</summary><pre className="source-text">{site.details.text}</pre></details>

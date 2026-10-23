@@ -28,7 +28,7 @@ export interface Project {
   coverAssetId?:string;
   coverTemplateId?:string;scopeTemplateId?:string;templatePhotoId?:string;
   templateEdits?:Partial<Record<'coverTitle'|'coverConcept'|'location'|'area'|'concept'|'wall'|'floor'|'other'|'scopeProject'|'scopeCopyright',string>>;
-  cafeScope?:{signature:string;imageUrls:string[];checkedAt:string;location:string;area:string;concept:string;scopeProject?:string;scopeCopyright?:string;rows:{label:string;value:string;field:'wall'|'floor'|'other'}[];warnings:string[]}|null;
+  cafeScope?:{readVersion?:2;signature:string;imageUrls:string[];checkedAt:string;location:string;area:string;concept:string;scopeProject?:string;scopeCopyright?:string;rows:{label:string;value:string;field:'wall'|'floor'|'other'}[];warnings:string[]}|null;
   templateWarning?:string;
   questionQuote?: 'none' | 'middle' | 'end';
   questionQuoteCount?: number;

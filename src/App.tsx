@@ -18,7 +18,7 @@ export default function App(){
   const [data,setData]=useState<Bootstrap|null>(null),[project,setProject]=useState<Project|null>(null),[settingsOpen,setSettingsOpen]=useState(false),[message,setMessage]=useState(''),[saving,setSaving]=useState(false),[saveError,setSaveError]=useState('');
   const [uploading,setUploading]=useState<{filename:string;progress:number;index:number;total:number}|null>(null);
   const [starting,setStarting]=useState(false);
-  const sessionStarted=useRef(Date.now()),templateAttempts=useRef(new Set<string>());
+  const sessionStarted=useRef(Date.now());
   const current=useRef<Project|null>(null),dirty=useRef(false),savePromise=useRef<Promise<void>|null>(null),seenJobs=useRef(new Set<string>());
   const notify=useCallback((message:string)=>setMessage(message),[]);
   const update=useCallback((patch:Partial<Project>)=>{if(!current.current)return;current.current={...current.current,...patch};dirty.current=true;setProject(current.current);},[]);
@@ -47,12 +47,6 @@ export default function App(){
     if(uploading||!current.current)return;const id=current.current.id;
     try{await save();for(let i=0;i<files.length;i++){const file=files[i],uploadRole=current.current?.postType==='case'&&['photo','template'].includes(role)?(/\.psd$/i.test(file.name)?'template':'photo'):role;setUploading({filename:file.name,progress:0,index:i+1,total:files.length});try{await api.upload(id,uploadRole,file,progress=>setUploading({filename:file.name,progress,index:i+1,total:files.length}));await refresh();}catch(e){notify(`${file.name}: ${(e as Error).message}`);}}}catch(e){notify((e as Error).message);}finally{setUploading(null);}
   };
-  useEffect(()=>{
-    if(!project||!data||project.postType!=='case'||project.phase!=='assets'||!project.coverTemplateId||!project.original.name.trim()||starting||uploading||data.jobs.some(j=>j.projectId===project.id&&['running','queued','cancelling'].includes(j.status)))return;
-    const assets=data.assets.filter(a=>a.projectId===project.id);if(!assets.some(a=>a.role==='photo'&&!a.templateOutput&&!a.excluded&&a.status==='ready'))return;
-    const key=project.id+project.coverTemplateId; if(assets.some(a=>a.templateOutput==='cover'&&a.status==='ready')||templateAttempts.current.has(key))return;
-    const timer=setTimeout(()=>{templateAttempts.current.add(key);void task('templates');},900);return()=>clearTimeout(timer);
-  },[project,data,starting,uploading]);
   if(!data||!project)return <div className="app-loading"><div className="brand-mark"><House size={24}/></div><h1>레몬하우스 스튜디오</h1><p>{message||'작업 공간을 준비하고 있습니다.'}</p>{!message?<LoaderCircle className="spin"/>:<Button onClick={()=>refresh().catch(e=>notify(e.message))}>다시 연결</Button>}</div>;
   const isCase=project.postType==='case',label=postLabel(project),site=postSite(project),postType=project.postType||'recommendation',listedProjects=data.projects.filter(p=>(p.postType||'recommendation')===postType);
   const selectSection=(kind:PostType)=>{const p=data.projects.find(p=>(p.postType||'recommendation')===kind);if(p)void switchProject(p);else void create(kind);};

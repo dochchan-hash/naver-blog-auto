@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
 import {Store} from '../server/store.mjs';import {AI} from '../server/ai.mjs';import {Naver} from '../server/naver.mjs';import {cafeImageUrl} from '../server/cafe-images.mjs';import {templateFields,cafeScopeCurrent,cafeScopeSignature} from '../shared/template-fields.mjs';
 import {templateSourceSignature,sourceSignature} from '../shared/sources.mjs';import {newProject} from '../shared/domain.mjs';
+import vm from 'node:vm';
 const {BrowserBridge}=createRequire(import.meta.url)('../desktop/browser.cjs');
 const deferred=()=>{let resolve;return {promise:new Promise(r=>{resolve=r;}),resolve};};
 const tick=()=>new Promise(r=>setImmediate(r));
@@ -25,6 +26,21 @@ test('페이지 열기가 응답하지 않아도 제한 시간 뒤 잠금을 풀
   await assert.rejects(bridge.exclusive(()=>bridge.open('https://blog.naver.com/example',{visible:false,loadTimeout:10})),/페이지를 여는 시간이 초과/);
   assert.equal(stopped,1);assert.equal(bridge.busy,false);await bridge.exclusive(()=>{});
 });
+
+test('응답 없는 프레임 조회·본문 읽기를 취소해도 네이버 작업 잠금을 해제한다',async()=>{
+  for(const body of [false,true]){
+    const bridge=new BrowserBridge(),controller=new AbortController(),frame={executeJavaScript:()=>new Promise(()=>{})};
+    bridge.window={isDestroyed:()=>false,webContents:{mainFrame:{...frame,framesInSubtree:[frame]}}};
+    const reading=bridge.exclusive(()=>body?bridge.evaluate(()=>({text:'본문'}),null,{readOnly:true}):bridge.frame('.se-main-container'),{signal:controller.signal});await tick();
+    const next=bridge.exclusive(()=> '다음 요청');controller.abort(new Error('사용자가 중단'));await assert.rejects(reading,/사용자가 중단/);assert.equal(await next,'다음 요청');assert.equal(bridge.busy,false);
+  }
+});
+
+test('읽기 제한 시간과 글 번호 확인은 멈춘 이전 프레임을 다시 기다리지 않는다',async()=>{
+  const bridge=new BrowserBridge(),stalled={url:'https://cafe.naver.com/fmbsno1/111',executeJavaScript:()=>{throw Error('이전 프레임은 읽지 않습니다.');}},current={url:'https://cafe.naver.com/fmbsno1/222',executeJavaScript:async()=>true};
+  bridge.window={isDestroyed:()=>false,webContents:{mainFrame:{framesInSubtree:[stalled,current]}}};assert.equal(await bridge.frame('.se-main-container','222'),current);
+  await assert.rejects(bridge.exclusive(()=>bridge.readFrame({executeJavaScript:()=>new Promise(()=>{})},'document.title',10)),/화면 읽기 시간이 초과/);assert.equal(await bridge.exclusive(()=> '복구'),'복구');
+});
 test('카페 이미지 주소는 HTTPS 네이버 CDN만 허용한다',()=>{
   assert.equal(cafeImageUrl('https://cafefiles.pstatic.net/a.jpg'),'https://cafefiles.pstatic.net/a.jpg');
   for(const url of ['http://cafefiles.pstatic.net/a.jpg','https://127.0.0.1/a.jpg','https://cafefiles.pstatic.net.evil.test/a.jpg','https://user@cafefiles.pstatic.net/a.jpg','https://cafefiles.pstatic.net:8443/a.jpg'])assert.throws(()=>cafeImageUrl(url));
@@ -34,6 +50,14 @@ test('카페의 요청한 글 번호를 기다리고 사진 목록이 안정된 
   const bridge={goto:async()=>{},waitFor:async(_,timeout,options)=>checks.push(options),evaluate:async(_,arg,options)=>{checks.push(options);return {text:'공사범위가 포함된 카페 본문',images:++observations<3?['loading.jpg']:['ready.jpg','scope.jpg']};}};
   const result=await new Naver({}, {},bridge).readPostPage('https://cafe.naver.com/example/17729');
   assert(checks.every(c=>c.urlContains==='17729'));assert.equal(observations,6);assert.deepEqual(result.images,['ready.jpg','scope.jpg']);assert.equal(result.formatProfile,null);
+});
+
+test('대표사진·인사·지도·인용구 다음 사진을 고르고 뒤쪽 사진 수는 기다리지 않는다',async()=>{
+  const component=(kind,url)=>({parentElement:{closest:()=>null},classList:{contains:c=>c===kind},matches:s=>s.includes(kind),querySelectorAll:s=>s==='img'&&url?[{getAttribute:()=>url}]:[]});
+  const components=[component('se-image','https://cafefiles.pstatic.net/cover.jpg'),component('se-text'),component('se-map'),component('se-horizontalLine'),component('se-image','https://cafefiles.pstatic.net/scope.jpg'),component('se-quotation'),component('se-image','https://cafefiles.pstatic.net/before-after.jpg'),...Array.from({length:200},(_,i)=>component('se-image',`https://cafefiles.pstatic.net/photo${i}.jpg`))];
+  const root={innerText:'인사글과 시공내용',querySelectorAll:s=>s==='.se-component'?components:s==='img'?components.flatMap(c=>c.querySelectorAll('img')):[]},document={title:'원본',baseURI:'https://cafe.naver.com',querySelector:()=>root};
+  let reads=0;const bridge={goto:async()=>{},waitFor:async()=>{},evaluate:async fn=>{reads++;return vm.runInNewContext(`(${fn.toString()})()`,{document,URL});}};
+  const result=await new Naver({}, {},bridge).readPostPage('https://cafe.naver.com/example/123');assert.equal(result.images.length,203);assert.deepEqual(Array.from(result.scopeImages),['https://cafefiles.pstatic.net/scope.jpg']);assert.equal(reads,4);
 });
 test('공사범위라는 파일명의 원본 이미지는 현장 사진 분석 없이 곧바로 전사한다',async t=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-named-scope-')),store=new Store(dir);t.after(async()=>{store.close();await fs.rm(dir,{recursive:true,force:true});});
@@ -46,13 +70,13 @@ test('공사범위라는 파일명의 원본 이미지는 현장 사진 분석 �
 test('공사범위 사진의 제품명과 전체 행을 보존하며 본문에만 있는 시공 항목을 섞지 않는다',async t=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-scope-')),store=new Store(dir);t.after(async()=>{store.close();await fs.rm(dir,{recursive:true,force:true});});
   let p=store.createProject('case');p=store.updateProject(p.id,{cafeUrl:'https://cafe.naver.com/example/123',sourceText:'화장실 전체를 철거하고 새 타일을 추천드립니다.',original:{...p.original,name:'시공 현장'}});
-  const urls=['https://cafefiles.pstatic.net/photo.jpg','https://cafefiles.pstatic.net/scope1.jpg','https://cafefiles.pstatic.net/scope2.jpg'],reads=[],pixels=[];
-  const ai=new AI(store,{}, {},{readPost:async url=>(reads.push(url),{text:p.sourceText,images:urls})});ai.cafeImage=async(url,edge)=>(pixels.push([url,edge]),'data:image/jpeg;base64,AA');let calls=0;
+  const scope='https://cafefiles.pstatic.net/scope.jpg',urls=['https://cafefiles.pstatic.net/cover.jpg',scope,...Array.from({length:200},(_,i)=>`https://cafefiles.pstatic.net/photo${i}.jpg`),'https://cafefiles.pstatic.net/interior-plan-unrelated.jpg'],reads=[],pixels=[];
+  const ai=new AI(store,{}, {},{readPost:async url=>(reads.push(url),{text:p.sourceText,images:urls,scopeImages:[scope]})});ai.cafeImage=async(url,edge)=>(pixels.push([url,edge]),'data:image/jpeg;base64,AA');let calls=0;
   const rows=[{label:'욕실',value:'대림 양변기, 샤워기',field:'other'},{label:'가구',value:'페트 싱크대',field:'other'},{label:'조명',value:'전체 기구류 교체, 식탁등, 베란다 등 교체',field:'other'},{label:'도장',value:'베란다 세라믹 탄성코트',field:'other'},{label:'도배',value:'전체 개나리 로하스 실크벽지',field:'wall'},{label:'목공',value:'몰딩, 걸레받이',field:'other'},{label:'필름',value:'샤시, 방문, 철제 중문, 팬트리 도어',field:'other'},{label:'기타',value:'방충망 교체',field:'other'}];
-  ai.call=async(instructions,content)=>{calls++;assert(content.every(c=>c.type==='input_image'||c.type==='input_text'));return calls===1?{images:[1,2]}:{location:'이미지 원문 현장명',area:'',concept:'',scopeProject:'',scopeCopyright:'',rows,warnings:[]};};
+  ai.call=async(instructions,content)=>{calls++;assert(content.every(c=>c.type==='input_image'));assert.match(instructions,/그대로 전사/);return {location:'이미지 원문 현장명',area:'',concept:'',scopeProject:'',scopeCopyright:'',rows,warnings:[]};};
   await ai.readCafeScope(p.id);p=store.get('project',p.id);const fields=templateFields(p,[]);assert.equal(fields.wall,'전체 개나리 로하스 실크벽지');assert.equal(fields.other,rows.filter(r=>r.field==='other').map(r=>r.label==='기타'?r.value:`${r.label} · ${r.value}`).join('\n'));assert(!fields.other.includes('타일'));assert.deepEqual(p.cafeScope.rows,rows);
-  assert.deepEqual(pixels.filter(r=>r[1]===2400).map(r=>r[0]),urls.slice(1));await ai.readCafeScope(p.id);assert.equal(calls,2);assert.equal(reads.length,1);
-  p=store.updateProject(p.id,{cafeUrl:'https://cafe.naver.com/example/456'});assert.equal(templateFields(p,[]).other,'');ai.browser.readPost=async()=>({text:'본문만 있습니다.',images:[]});await assert.rejects(ai.readCafeScope(p.id),/첨부 사진을 읽지 못/);assert.equal(calls,2);assert.equal(store.get('project',p.id).cafeScope.signature,p.cafeScope.signature);
+  assert.deepEqual(pixels,[[scope,2400]]);assert.equal(p.cafeScope.readVersion,2);await ai.readCafeScope(p.id);assert.equal(calls,1);assert.equal(reads.length,1);
+  p=store.updateProject(p.id,{cafeUrl:'https://cafe.naver.com/example/456'});assert.equal(templateFields(p,[]).other,'');ai.browser.readPost=async()=>({text:'본문만 있습니다.',images:[]});await assert.rejects(ai.readCafeScope(p.id),/첨부 사진을 읽지 못/);assert.equal(calls,1);assert.equal(store.get('project',p.id).cafeScope.signature,p.cafeScope.signature);
 });
 test('원본 공사범위의 벽면·바닥·그 외 칸은 항목명을 중복하지 않고 내용 그대로 채운다',()=>{
   const p={original:{name:'현장',region:'',type:'',supplyArea:''},concept:'',manualWork:'',facts:[],cafeUrl:'https://cafe.naver.com/example/123',sourceText:'본문'};
