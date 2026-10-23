@@ -4,11 +4,11 @@
 
 시공 현장의 사진과 공사내용을 바탕으로 블로그 추천글·시공사례와 카페 마감글을 작성하는 개인용 프로그램입니다. 한 프로그램에서 글 종류를 선택하며 보관함과 작성 스타일을 따로 관리합니다. 각 직원의 컴퓨터에 사진·원고·계정 연결을 따로 보관합니다.
 
-현재 소스의 핵심 기능과 검증·배포 상태는 [이어가기 핵심](CURRENT_STATUS.md)에 정리했습니다. 카페 마감 기능은 main에 병합됐으며, 기존 Windows 실행본 교체와 최신 로그인 후 실제 카페 재입력은 아직 진행하지 않았습니다. 마감의 PSD 편집·사진 배치·지도·영상·태그 기능은 [카페 마감 안내](CAFE_COMPLETION.md)를 참고하세요.
+현재 소스의 핵심 기능과 검증·배포 상태는 [이어가기 핵심](CURRENT_STATUS.md)에 정리했습니다. 카페 마감 기능은 main에 병합했고 이 PC의 기존 Windows 실행본에도 적용했습니다. 최신 로그인 후 실제 카페 재입력은 대기 중입니다. 마감의 PSD 편집·사진 배치·지도·영상·태그 기능은 [카페 마감 안내](CAFE_COMPLETION.md)를 참고하세요.
 
 ## 실행
 
-**Windows에서 바로 사용하려면 [최신 실행본 다운로드](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)의 `naver-blog-auto-0.1.0-windows-x64.zip`을 받으세요.** 같은 GitHub 계정으로 로그인한 뒤 ZIP을 **모두 추출**하고 폴더 안의 `Lemonhouse Blog Studio.exe`를 실행합니다. Node.js 설치나 코드 빌드는 필요하지 않습니다. 자세한 절차는 [Windows 사용 안내](WINDOWS_START.md)를 참고하세요.
+**이 PC에서는 기존 `레몬하우스 실행.cmd`를 그대로 사용하면 추천글·시공사례·카페 마감 기능이 포함된 최신 버전으로 열립니다.** 다른 PC용 [Releases 배포본](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)의 ZIP은 이번 소스 갱신에서 교체하지 않았으므로 마감 기능은 최신 소스를 빌드해 사용하세요. 기존 ZIP을 사용할 때도 **모두 추출**하고 폴더 안의 `Lemonhouse Blog Studio.exe`를 실행합니다. 자세한 절차는 [Windows 사용 안내](WINDOWS_START.md)를 참고하세요.
 
 GitHub의 **Code → Download ZIP**과 **Source code**는 개발용 소스입니다. 실행본은 **Releases**에서 받습니다. 이 저장소에는 개인 계정 연결, 현장 사진, 작성한 원고를 포함하지 않습니다. 새 컴퓨터에서는 ChatGPT와 네이버에 처음 한 번씩 로그인하세요.
 

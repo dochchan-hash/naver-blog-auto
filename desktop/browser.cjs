@@ -216,6 +216,5 @@ class BrowserBridge {
       return {...status,saved:!loginRequired&&saved.saved,lastVerifiedAt:this.credentials?.lastVerifiedAt};
     }catch{return {available:true,connected:false,open:true,verified:this.publishVerified,reason:'네이버 화면을 읽지 못했습니다. 연결 창에서 페이지가 열렸는지 확인해 주세요.'};}
   }
-  async close(){this.window?.close();}
 }
 module.exports={BrowserBridge,snapshotClipboard};

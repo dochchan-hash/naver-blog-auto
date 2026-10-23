@@ -32,9 +32,6 @@
 
 .completion-template-slot{padding:24px 0;border-top:1px solid var(--border,#dce3d7)}
 .completion-template-preview{width:100%;max-height:600px;object-fit:contain;border-radius:8px;background:#f5f6f1}
-.completion-photo-picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;padding:12px 0;max-height:360px;overflow:auto}
-.completion-photo-picker label{display:flex;flex-direction:column;gap:6px;font-size:12px;overflow-wrap:anywhere}
-.completion-photo-picker img{width:100%;height:100px;object-fit:cover}
 .completion-template-slot .template-image-preview img{height:auto;max-height:none;margin:0}
 .completion-template-slot .template-image-preview button{display:block;line-height:0}
 .completion-template-slot small{display:block;margin:12px 0;color:#71806e;line-height:1.7}

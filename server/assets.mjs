@@ -11,7 +11,7 @@ import {compileCompletionTemplate} from './completion-templates.mjs';
 import {createCanvas,DOMMatrix,ImageData,Path2D} from '@napi-rs/canvas';
 globalThis.DOMMatrix ||= DOMMatrix;globalThis.ImageData ||= ImageData;globalThis.Path2D ||= Path2D;
 const fileError=message=>Object.assign(new Error(message),{status:400});
-export function detectMime(head) {
+function detectMime(head) {
   if(head.length>=6&&head.subarray(0,4).toString()==='8BPS'&&head.readUInt16BE(4)===1)return 'image/vnd.adobe.photoshop';
   if(head.subarray(0,5).toString()==='%PDF-')return 'application/pdf';
   if(head[0]===0xff&&head[1]===0xd8&&head[2]===0xff)return 'image/jpeg';

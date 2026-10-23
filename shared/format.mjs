@@ -119,7 +119,7 @@ export function referenceStructure(project,profile){
 }
 // Move a legacy heading ahead of its own immediately preceding photo groups.
 // Keep cover photos, question quotes, dividers and user text in their positions.
-export function spaceHeadingFirst(blocks){
+function spaceHeadingFirst(blocks){
   const ordered=[...blocks];
   for(let i=0;i<ordered.length;i++){
     const heading=ordered[i];

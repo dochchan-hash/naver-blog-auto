@@ -25,7 +25,7 @@ export function newProject(id = crypto.randomUUID(),postType='recommendation') {
   return {id, revision:0,postType,...(postType==='case'?{category:''}:{}),...(postType==='completion'?{cafeTargetUrl:'https://cafe.naver.com/fmbsno1',cafeBoardUrl:'',completionTemplates:[['표지','cover'],['공사범위','scope'],['시공 전후','beforeAfter'],['공간별 포인트','space'],['마무리','closing']].map(([name,position],i)=>({id:id+'-template-'+i,name,position,space:'거실',templateId:'',text:'',photoIds:[]}))}:{}), name:`새 ${postLabel({postType})}`, phase:'site', original:emptySite(), target:emptySite(), manualWork:'', cafeUrl:'', sourceText:'', concept:'', keywords:[{term:'',min:7,max:8}], title:'', blocks:[], tags:[], facts:[], comparison:null, questionQuote:'none',publishMode:'review',visibility:'public', scheduleAt:'', updatedAt:now, createdAt:now, draftStatus:'empty', generationWarnings:[]};
 }
 export function bodyText(project) { return project.blocks.filter(b => ['text','heading','quote'].includes(b.kind)).map(b => b.text || '').join('\n'); }
-export function countOccurrences(text, term) {
+function countOccurrences(text, term) {
   if (!term.trim()) return 0;
   let count=0, pos=0;
   while ((pos=text.indexOf(term, pos)) !== -1) { count++; pos += term.length; }
@@ -40,7 +40,7 @@ export function keywordReport(project) {
     return {...k,count,ok:count>=k.min&&count<=k.max,collision};
   });
 }
-export function escapeHtml(value='') { return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeHtml(value='') { return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 export function parseJsonOutput(text) {
   const clean=text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
   try { return JSON.parse(clean); } catch { throw Object.assign(new Error('AI 결과 형식을 읽을 수 없습니다. 자료는 저장되어 있습니다. 다시 생성하거나 직접 수정해 주세요.'),{status:422}); }
@@ -80,7 +80,7 @@ export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID(
   blocks.splice(outro<0?blocks.length:outro,0,...newBlocks);
   return referenceStructure({...project,blocks},format);
 }
-export function completionSpacePhotos(groups){
+function completionSpacePhotos(groups){
   const points=groups.filter(g=>g.assets.some(a=>a.templateSlotId)),raw=groups.filter(g=>!points.includes(g)),all=raw.flatMap(g=>g.assets),count=Math.min(2,raw[0]?.assets.length||0),space=groups[0]?.space;
   const representative=all.length?[{space,assets:all.slice(0,count),layout:count>1?'collage':undefined}]:[];
   const slides=[];for(let i=count;i<all.length;i+=10)slides.push({space,assets:all.slice(i,i+10),layout:all.length-i>1?'slide':undefined});

@@ -1,5 +1,4 @@
 export const SPACES = ['현관', '거실', '주방', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실'] as const;
-export type Space = typeof SPACES[number];
 export type PostType = 'recommendation' | 'case' | 'completion';
 export interface CompletionEdit {text?:string;photoId?:string;visible?:boolean;x?:number;y?:number;scale?:number;zoom?:number;cropX?:number;cropY?:number;fontSize?:number;fontFamily?:string;fontWeight?:number;color?:string;align?:'left'|'center'|'right';width?:number;height?:number;}
 export interface CompletionOverlay extends CompletionEdit {id:string;text:string;x:number;y:number;width:number;height:number;backgroundColor?:string;}
