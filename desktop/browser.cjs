@@ -85,11 +85,11 @@ class BrowserBridge {
     try{return await Promise.race([frame.executeJavaScript(source),interrupted]);}
     finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);window?.off?.('closed',closed);}
   }
-  async evaluate(fn,arg,{selector,urlContains='',readOnly=false}={}){
+  async evaluate(fn,arg,{selector,urlContains='',readOnly=false,userGesture=false}={}){
     const f=selector?await this.frame(selector,urlContains):this.window?.webContents.mainFrame;
     if(!f)throw Object.assign(new Error('네이버 화면을 읽을 수 없습니다. 로그인 또는 화면 변경을 확인해 주세요.'),{status:422});
     const source=`(${fn.toString()})(${JSON.stringify(arg??null)})`;
-    return readOnly?this.readFrame(f,source):f.executeJavaScript(source);
+    return readOnly?this.readFrame(f,source):f.executeJavaScript(source,userGesture);
   }
   async waitFor(selector,timeout=18000,{urlContains=''}={}){
     const start=Date.now();while(Date.now()-start<timeout){const f=await this.frame(selector,urlContains);if(f)return f;await sleep(250);}
@@ -123,7 +123,7 @@ class BrowserBridge {
   }
   async focusText(selector,{last=true,selectAll=false}={}){
     this.reveal();
-    await this.click('button.se-sidebar-close-button,button[title="팝업 닫기"],button[aria-label="팝업 닫기"]',{optional:true});
+    await this.click('button.se-sidebar-close-button,button.se-flayer-unified-fold-button,button[title="팝업 닫기"],button[aria-label="팝업 닫기"]',{optional:true});
     const box=await this.evaluate(({selector,last,selectAll})=>{
       const nodes=[...document.querySelectorAll(selector)].filter(e=>e.getBoundingClientRect().width>0),node=last?nodes.at(-1):nodes[0];
       if(!node)throw new Error('본문 입력란을 찾지 못했습니다.');node.scrollIntoView({block:'center'});const r=node.getBoundingClientRect();
@@ -142,7 +142,7 @@ class BrowserBridge {
   }
   async appendParagraph(){
     this.reveal();
-    const tail=await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(e=>{delete e.dataset.lemonTail;delete e.dataset.lemonTailParagraph;});const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);if(!c)return null;c.dataset.lemonTail='true';const p=c.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(p)p.dataset.lemonTailParagraph='true';return {text:!!p,empty:![...p?.querySelectorAll('.__se-node')||[]].map(n=>n.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'')};},null,{selector:'.se-title-text'});
+    const tail=await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(e=>{delete e.dataset.lemonTail;delete e.dataset.lemonTailParagraph;});const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);if(!c)return null;c.dataset.lemonTail='true';const p=c.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(p)p.dataset.lemonTailParagraph='true';return {text:!!p,empty:![...p?.querySelectorAll('.__se-node')||[]].map(n=>n.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'')};},null,{selector:'.se-component'});
     if(!tail)throw new Error('본문 끝 입력 위치를 찾지 못했습니다.');
     if(tail.text){
       await this.focusText('[data-lemon-tail-paragraph="true"]',{last:false});
@@ -152,14 +152,14 @@ class BrowserBridge {
       if(!tail.empty)await this.key('Return');
     }
     else{
-      const cite=await this.evaluate(()=>!!document.querySelector('[data-lemon-tail="true"] .se-cite .se-text-paragraph'),null,{selector:'.se-title-text'});
+      const cite=await this.evaluate(()=>!!document.querySelector('[data-lemon-tail="true"] .se-cite .se-text-paragraph'),null,{selector:'.se-component'});
       if(cite){await this.focusText('[data-lemon-tail="true"] .se-cite .se-text-paragraph',{last:false});await this.key('End');await this.key('ArrowDown',{modifiers:[process.platform==='darwin'?'meta':'control']});await this.key('ArrowDown');await this.key('Return');}
       else{await this.clickNative('[data-lemon-tail="true"] .se-component-content');await this.key('ArrowDown');await this.key('Return');}
     }
-    await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(c=>{delete c.dataset.lemonTail;delete c.dataset.lemonTailParagraph;});},null,{selector:'.se-title-text'});
-    const until=Date.now()+3000;let ready=false;do{ready=await this.evaluate(()=>{const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);const p=c?.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(!p||[...p.querySelectorAll('.__se-node')].some(n=>n.textContent.replace(/[\s\u200B\uFEFF]/g,'')))return false;p.dataset.lemonInsertion='true';return true;},null,{selector:'.se-title-text'});if(ready)break;await sleep(100);}while(Date.now()<until);
+    await this.evaluate(()=>{document.querySelectorAll('[data-lemon-tail],[data-lemon-tail-paragraph]').forEach(c=>{delete c.dataset.lemonTail;delete c.dataset.lemonTailParagraph;});},null,{selector:'.se-component'});
+    const until=Date.now()+3000;let ready=false;do{ready=await this.evaluate(()=>{const c=[...document.querySelectorAll('.se-component:not(.se-documentTitle)')].at(-1);const p=c?.matches('.se-text')?[...c.querySelectorAll('.se-text-paragraph')].at(-1):null;if(!p||[...p.querySelectorAll('.__se-node')].some(n=>n.textContent.replace(/[\s\u200B\uFEFF]/g,'')))return false;p.dataset.lemonInsertion='true';return true;},null,{selector:'.se-component'});if(ready)break;await sleep(100);}while(Date.now()<until);
     if(!ready)throw new Error('인용구·구분선·사진 뒤에 본문 입력 위치를 만들지 못했습니다.');
-    await this.focusText('[data-lemon-insertion="true"]',{last:false});await this.key('End');await this.evaluate(()=>{document.querySelectorAll('[data-lemon-insertion]').forEach(p=>delete p.dataset.lemonInsertion);},null,{selector:'.se-title-text'});
+    await this.focusText('[data-lemon-insertion="true"]',{last:false});await this.key('End');await this.evaluate(()=>{document.querySelectorAll('[data-lemon-insertion]').forEach(p=>delete p.dataset.lemonInsertion);},null,{selector:'.se-component'});
   }
   async key(keyCode,{modifiers=[]}={}){const wc=this.window.webContents,keys={Return:['Enter',13],ArrowDown:['ArrowDown',40],End:['End',35]};if(!keys[keyCode]){for(const type of ['keyDown','keyUp'])wc.sendInputEvent({type,keyCode,modifiers});}else{const attached=wc.debugger.isAttached();if(!attached)wc.debugger.attach('1.3');try{const [key,windowsVirtualKeyCode]=keys[keyCode],mask=modifiers.reduce((n,m)=>n|({shift:8,control:2,meta:4,alt:1}[m]||0),0);await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key,code:key==='Enter'?'Enter':key,windowsVirtualKeyCode,modifiers:mask,...(key==='Enter'&&!mask?{text:'\r',unmodifiedText:'\r'}:{})});await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key,windowsVirtualKeyCode,modifiers:mask});}finally{if(!attached)wc.debugger.detach();}}await sleep(80);}
   async pasteHtml(html){const saved=await snapshotClipboard();try{await clipboard.write([new ClipboardItem({'text/plain':html.replace(/<[^>]*>/g,''),'text/html':html})]);this.window.webContents.focus();this.window.webContents.paste();await sleep(400);}finally{if(saved.length)await clipboard.write(saved);else await clipboard.clear();}}

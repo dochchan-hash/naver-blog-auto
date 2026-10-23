@@ -41,13 +41,21 @@ test('읽기 제한 시간과 글 번호 확인은 멈춘 이전 프레임을 �
   bridge.window={isDestroyed:()=>false,webContents:{mainFrame:{framesInSubtree:[stalled,current]}}};assert.equal(await bridge.frame('.se-main-container','222'),current);
   await assert.rejects(bridge.exclusive(()=>bridge.readFrame({executeJavaScript:()=>new Promise(()=>{})},'document.title',10)),/화면 읽기 시간이 초과/);assert.equal(await bridge.exclusive(()=> '복구'),'복구');
 });
+
+test('영상 입력의 사용자 동작 신호와 읽기 전용 제한 시간을 함께 유지한다',async()=>{
+  const calls=[],frame={executeJavaScript:async(source,gesture)=>{calls.push(gesture);return vm.runInNewContext(source);}},bridge=new BrowserBridge();
+  bridge.window={isDestroyed:()=>false,webContents:{mainFrame:frame}};
+  assert.equal(await bridge.evaluate(()=>7,null,{userGesture:true}),7);
+  assert.equal(await bridge.evaluate(()=>8,null,{readOnly:true}),8);
+  assert.deepEqual(calls,[true,undefined]);
+});
 test('카페 이미지 주소는 HTTPS 네이버 CDN만 허용한다',()=>{
   assert.equal(cafeImageUrl('https://cafefiles.pstatic.net/a.jpg'),'https://cafefiles.pstatic.net/a.jpg');
   for(const url of ['http://cafefiles.pstatic.net/a.jpg','https://127.0.0.1/a.jpg','https://cafefiles.pstatic.net.evil.test/a.jpg','https://user@cafefiles.pstatic.net/a.jpg','https://cafefiles.pstatic.net:8443/a.jpg'])assert.throws(()=>cafeImageUrl(url));
 });
 test('카페의 요청한 글 번호를 기다리고 사진 목록이 안정된 다음 원문을 읽는다',async()=>{
   let observations=0;const checks=[];
-  const bridge={goto:async()=>{},waitFor:async(_,timeout,options)=>checks.push(options),evaluate:async(_,arg,options)=>{checks.push(options);return {text:'공사범위가 포함된 카페 본문',images:++observations<3?['loading.jpg']:['ready.jpg','scope.jpg']};}};
+  const bridge={goto:async()=>{},waitFor:async(_,timeout,options)=>checks.push(options),evaluate:async(fn,arg,options)=>{checks.push(options);if(fn.name==='readReferenceFormat')return null;return {text:'공사범위가 포함된 카페 본문',images:++observations<3?['loading.jpg']:['ready.jpg','scope.jpg']};}};
   const result=await new Naver({}, {},bridge).readPostPage('https://cafe.naver.com/example/17729');
   assert(checks.every(c=>c.urlContains==='17729'));assert.equal(observations,6);assert.deepEqual(result.images,['ready.jpg','scope.jpg']);assert.equal(result.formatProfile,null);
 });
@@ -56,7 +64,7 @@ test('대표사진·인사·지도·인용구 다음 사진을 고르고 뒤쪽 
   const component=(kind,url)=>({parentElement:{closest:()=>null},classList:{contains:c=>c===kind},matches:s=>s.includes(kind),querySelectorAll:s=>s==='img'&&url?[{getAttribute:()=>url}]:[]});
   const components=[component('se-image','https://cafefiles.pstatic.net/cover.jpg'),component('se-text'),component('se-map'),component('se-horizontalLine'),component('se-image','https://cafefiles.pstatic.net/scope.jpg'),component('se-quotation'),component('se-image','https://cafefiles.pstatic.net/before-after.jpg'),...Array.from({length:200},(_,i)=>component('se-image',`https://cafefiles.pstatic.net/photo${i}.jpg`))];
   const root={innerText:'인사글과 시공내용',querySelectorAll:s=>s==='.se-component'?components:s==='img'?components.flatMap(c=>c.querySelectorAll('img')):[]},document={title:'원본',baseURI:'https://cafe.naver.com',querySelector:()=>root};
-  let reads=0;const bridge={goto:async()=>{},waitFor:async()=>{},evaluate:async fn=>{reads++;return vm.runInNewContext(`(${fn.toString()})()`,{document,URL});}};
+  let reads=0;const bridge={goto:async()=>{},waitFor:async()=>{},evaluate:async fn=>{if(fn.name==='readReferenceFormat')return null;reads++;return vm.runInNewContext(`(${fn.toString()})()`,{document,URL});}};
   const result=await new Naver({}, {},bridge).readPostPage('https://cafe.naver.com/example/123');assert.equal(result.images.length,203);assert.deepEqual(Array.from(result.scopeImages),['https://cafefiles.pstatic.net/scope.jpg']);assert.equal(reads,4);
 });
 test('공사범위라는 파일명의 원본 이미지는 현장 사진 분석 없이 곧바로 전사한다',async t=>{

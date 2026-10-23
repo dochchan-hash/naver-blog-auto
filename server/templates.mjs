@@ -5,12 +5,17 @@ import {createCanvas,ImageData,loadImage,GlobalFonts} from '@napi-rs/canvas';
 import {templateSourceSignature} from '../shared/sources.mjs';
 import {templateFields} from '../shared/template-fields.mjs';
 import {checkCancelled} from './jobs.mjs';
+import {readCompletionTemplate,refreshCompletionTextStyles} from './completion-templates.mjs';
+import {renderCompletionImage} from './completion-worker.mjs';
+import {completionSignature} from '../shared/completion-templates.mjs';
+import {photoLayoutBlocks} from '../shared/domain.mjs';
 initializeCanvas(createCanvas,undefined,(w,h)=>new ImageData(w,h));
 GlobalFonts.loadSystemFonts();
 const fail=message=>Object.assign(new Error(message),{status:400});
 const flat=layers=>layers.flatMap(l=>l.hidden?[]:l.children?flat(l.children):[l]);
 
-export function readTemplate(buffer){
+export function readTemplate(buffer,{unmapped=false}={}){
+  if(unmapped)return readCompletionTemplate(buffer);
   if(buffer.length<26||buffer.subarray(0,4).toString()!=='8BPS'||buffer.readUInt16BE(4)!==1||buffer.readUInt16BE(22)!==8||buffer.readUInt16BE(24)!==3)throw fail('RGB · 8비트 PSD 템플릿을 선택해 주세요.');
   const height=buffer.readUInt32BE(14),width=buffer.readUInt32BE(18);
   if(!width||!height||width*height>20_000_000)throw fail('템플릿 크기는 2천만 픽셀 이하로 선택해 주세요.');
@@ -78,8 +83,16 @@ export async function renderTemplate(template,project,photoPath,assets){
 
 export class Templates {
   constructor(store,assets){Object.assign(this,{store,assets});}
-  async render(projectId,update=()=>{},{skipScope=false}={}){
+  async refreshCompletionStyles(){
+    for(const asset of this.store.assets().filter(a=>a.templateKind==='completion'&&a.layouts?.length&&a.templateVersion!==2)){
+      try{const layouts=refreshCompletionTextStyles(await fs.readFile(this.assets.resolve(asset.originalPath)),asset.layouts);this.store.put('asset',asset.id,{...asset,layouts,templateVersion:2});}
+      catch(error){this.store.put('asset',asset.id,{...asset,warning:'PSD 원본 서식을 다시 읽지 못했습니다. 원본은 보존했습니다. '+error.message});}
+    }
+  }
+
+  async render(projectId,update=()=>{},{skipScope=false,slotId}={}){
     await this.assets.queue;const project=this.store.get('project',projectId);
+    if(project?.postType==='completion')return this.renderCompletion(project,update,slotId);
     if(project?.postType!=='case')throw fail('시공사례에서 템플릿 이미지를 만들 수 있습니다.');
     if(!project.original.name.trim())throw fail('시공 현장명을 먼저 입력해 주세요.');
     const all=this.store.assets(),projectAssets=all.filter(a=>a.projectId===projectId),photos=projectAssets.filter(a=>a.role==='photo'&&!a.templateOutput&&!a.excluded&&a.status==='ready').sort((a,b)=>a.order-b.order),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos[0];
@@ -105,5 +118,24 @@ export class Templates {
     const saved=this.store.updateProject(projectId,{templatePhotoId:photo.id,coverAssetId,...(scopeError?{templateWarning:`공사범위 이미지 생성 실패: ${scopeError.message}`}:{})});
     if(scopeError)throw fail(`표지는 만들었습니다. 공사범위: ${scopeError.message}`);
     update({message:'이미지를 완성했습니다. 미리보기와 JPG 파일을 확인해 주세요.',progress:100});return {project:saved,assets:this.store.assets(projectId)};
+  }
+  async renderCompletion(project,update,slotId){
+    const slots=(project.completionTemplates||[]).filter(s=>s.templateId&&(!slotId||s.id===slotId));if(!slots.length)throw fail('수정할 마감 PSD 템플릿을 선택해 주세요.');
+    const all=this.store.assets(),created=[];let coverAssetId=project.coverAssetId;
+    for(const [index,slot]of slots.entries()){
+      const template=all.find(a=>a.id===slot.templateId&&a.templateKind==='completion'&&a.status==='ready');if(!template?.layouts?.length)throw fail('마감 PSD를 다시 등록해 레이아웃을 읽어 주세요.');
+      update({message:`${slot.name} 이미지를 만듭니다.`,progress:10+Math.round(index/slots.length*75)});
+      const {buffer,preview,missing,layout}=await renderCompletionImage({template,slot,project,assets:all,root:this.assets.root,edge:this.store.get('settings','main').photoEdge});checkCancelled();
+      const previous=all.find(a=>a.projectId===project.id&&a.templateSlotId===slot.id),id=previous?.id||randomUUID(),originalPath=`${id}/original.jpg`,previewPath=`${id}/preview.jpg`;
+      await fs.mkdir(this.assets.resolve(id),{recursive:true});await fs.writeFile(this.assets.resolve(`${id}/render.tmp`),buffer);await fs.rename(this.assets.resolve(`${id}/render.tmp`),this.assets.resolve(originalPath));
+      await fs.writeFile(this.assets.resolve(`${id}/preview.tmp`),preview);await fs.rename(this.assets.resolve(`${id}/preview.tmp`),this.assets.resolve(previewPath));
+      const space={cover:'표지',scope:'공사범위',beforeAfter:'시공전후',closing:'마무리',space:slot.space}[slot.position];
+      this.store.put('asset',id,{...previous,id,projectId:project.id,role:'photo',filename:`${project.original.name||'현장'} ${slot.name}.jpg`,mime:'image/jpeg',bytes:buffer.length,hash:createHash('sha256').update(buffer).digest('hex'),originalPath,previewPath,previewBytes:preview.length,status:'ready',space,spaceManual:true,group:'',order:(project.completionTemplates||[]).indexOf(slot),excluded:missing.length>0,templateOutput:'completion',templateSlotId:slot.id,templateIncomplete:missing,templateSignature:completionSignature(project,slot,all),width:layout.width,height:layout.height});
+      created.push(id);
+      if(slot.position==='cover'&&!missing.length)coverAssetId=id;
+    }
+    const active=new Set((project.completionTemplates||[]).map(s=>s.id));for(const a of all.filter(a=>a.projectId===project.id&&a.templateOutput==='completion'&&!active.has(a.templateSlotId)))this.store.put('asset',a.id,{...a,excluded:true});
+    const next={...project,coverAssetId},assets=this.store.assets(project.id),activePhotos=assets.filter(a=>a.role==='photo'&&!a.excluded),written=project.blocks.filter(b=>b.kind==='photos').flatMap(b=>b.assetIds),samePhotos=activePhotos.length===written.length&&activePhotos.every(a=>written.includes(a.id)),saved=this.store.updateProject(project.id,{coverAssetId,...(project.blocks.length?{blocks:samePhotos?project.blocks:photoLayoutBlocks(next,assets)}:{})});
+    update({message:'변경 내용을 적용했습니다. 사진칸과 JPG 미리보기를 확인해 주세요.',progress:100});return {project:saved,assets,created};
   }
 }
