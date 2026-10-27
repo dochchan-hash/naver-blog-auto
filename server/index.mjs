@@ -172,7 +172,7 @@ export async function createServer({dataDir=process.env.LEMONHOUSE_DATA_DIR||pat
       const p=store.get('project',req.params.id);
       if(p.postType==='completion')for(const slot of (p.completionTemplates||[]).filter(s=>s.enabled!==false&&s.templateId)){
         const assets=store.assets(),output=assets.find(a=>a.projectId===p.id&&a.templateSlotId===slot.id);
-        if(output?.templateSignature!==completionSignature(p,slot,assets))await templates.render(p.id,update,{slotId:slot.id});
+        if(output?.templateSignature!==completionSignature(slot,assets))await templates.render(p.id,update,{slotId:slot.id});
         const current=store.assets(p.id).find(a=>a.templateSlotId===slot.id);
         if(!current||current.excluded||current.templateIncomplete?.length)throw new Error(slot.name+' 사진칸을 채운 뒤 ‘수정 변경하기’를 눌러 주세요. 사용하지 않는 템플릿은 사진 단계에서 ‘이 템플릿 사용’ 체크를 꺼 주세요.');
       }

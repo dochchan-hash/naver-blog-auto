@@ -21,7 +21,7 @@ test('비포애프터 JPG도 공간을 압축하고 포인트 번호 1~5를 사�
   const shifted=await renderCompletionLayout(template,{...slot,edits:{a:{cropX:100}}},project,assets,p=>path.join(dir,p));c.drawImage(await loadImage(shifted.buffer),0,0);assert(c.getImageData(25,50,1,1).data[1]>230);assert(c.getImageData(75,50,1,1).data[0]>220&&c.getImageData(75,50,1,1).data[1]<40);
  const pointLayout={...layout,position:'space',height:330,elements:[photo('point',0,0,200,330)]},point={id:'point',position:'space',photoIds:['blue'],markers:[1,2,3,4,5].map((number,i)=>({number,x:25,y:10+i*55}))};
  const numbered=await renderCompletionLayout({id:'template',layouts:[pointLayout]},point,project,assets,p=>path.join(dir,p));const n=await loadImage(numbered.buffer),nc=createCanvas(200,330).getContext('2d');nc.drawImage(n,0,0);for(const m of point.markers){const pixel=nc.getImageData(m.x+5,m.y+13,1,1).data;assert(pixel[0]>200&&pixel[2]<90);}
- assert.equal(completionMarkers(point,pointLayout).length,5);assert.notEqual(completionSignature(project,point,assets),completionSignature(project,{...point,markers:point.markers.slice(0,4)},assets));
+ assert.equal(completionMarkers(point,pointLayout).length,5);assert.notEqual(completionSignature(point,assets),completionSignature({...point,markers:point.markers.slice(0,4)},assets));
 });
 test('60장 한 공간도 첫 사진 한 장·설명·최대 10장씩 슬라이드로 나누며 모두 한 번씩 쓴다',()=>{
  const p={...newProject('p','completion'),completionTemplates:[{id:'point',position:'space',space:'거실',templateId:'psd',photoIds:[]}],keywords:[],original:{name:'테스트 현장'},formatProfile:COMPLETION_FORMAT},assets=[{id:'point',role:'photo',templateSlotId:'point',space:'거실',order:0,status:'ready'},...Array.from({length:60},(_,i)=>({id:'p'+i,role:'photo',space:'거실',group:'all',order:i+1,status:'ready'}))];

@@ -1,9 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
-import type {Asset,CompletionEdit,CompletionLayout,CompletionTemplate,Project} from '../../shared/model';
+import type {Asset,CompletionEdit,CompletionLayout,CompletionTemplate} from '../../shared/model';
 import {completionBands,completionPhotos,completionMarkers,completionMarkerSprites,isCompletionMarker,completionPan,completionText,completionPhotoPlacement,drawCompletionText} from '../../shared/completion-templates.mjs';
 
-type Props={template:Asset;layout:CompletionLayout;slot:CompletionTemplate;project:Project;assets:Asset[];selected:string;select:(id:string)=>void;edit:(id:string,patch:CompletionEdit)=>void;onMarkers:(markers:NonNullable<CompletionTemplate['markers']>)=>void;onPhoto:(id:string,files:File[],photoId?:string)=>Promise<void>;disabled:boolean;};
-export function CompletionPreview({template,layout,slot,project,assets,selected,select,edit,onMarkers,onPhoto,disabled}:Props){
+type Props={template:Asset;layout:CompletionLayout;slot:CompletionTemplate;assets:Asset[];selected:string;select:(id:string)=>void;edit:(id:string,patch:CompletionEdit)=>void;onMarkers:(markers:NonNullable<CompletionTemplate['markers']>)=>void;onPhoto:(id:string,files:File[],photoId?:string)=>Promise<void>;disabled:boolean;};
+export function CompletionPreview({template,layout,slot,assets,selected,select,edit,onMarkers,onPhoto,disabled}:Props){
   const canvas=useRef<HTMLCanvasElement>(null),cache=useRef(new Map<string,Promise<HTMLImageElement>>()),drag=useRef<{id:string;x:number;y:number;edit:CompletionEdit;marker?:number}|null>(null),[error,setError]=useState('');
   const bands=completionBands(slot,layout),height=bands.reduce((n:number,b:{height:number})=>n+b.height,0),photos=completionPhotos(slot,layout),markers=completionMarkers(slot,layout);
   const load=(url:string)=>{if(!cache.current.has(url))cache.current.set(url,new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>{cache.current.delete(url);reject(new Error('미리보기를 불러오지 못했습니다. 다시 시도해 주세요.'));};img.src=url;}));return cache.current.get(url)!;};
@@ -12,7 +12,7 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
     void (async()=>{
       const full=document.createElement('canvas');full.width=layout.width;full.height=layout.height;const c=full.getContext('2d')!;c.fillStyle='white';c.fillRect(0,0,full.width,full.height);
       for(const element of layout.elements){
-        const change=slot.edits?.[element.id]||{};
+        const change=slot.edits?.[element.id]||{},text=element.kind==='text'?completionText(slot,element):'';
         if(change.visible===false||element.kind==='photo'&&!photos.some((p:{element:{id:string}})=>p.element.id===element.id)||slot.position==='space'&&isCompletionMarker(element))continue;
         if(!element.imageUrl)continue;
         const sprite=await load(element.imageUrl),x=change.x??element.x,y=change.y??element.y,scale=change.scale||1;
@@ -22,10 +22,10 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
           if(asset?.previewUrl){const image=await load(asset.previewUrl),placement=completionPhotoPlacement(change,element,image);p.drawImage(image,placement.x,placement.y,placement.width,placement.height);}
           else{p.fillStyle='#eef0e9';p.fillRect(0,0,part.width,part.height);p.fillStyle='#61715d';p.font='24px sans-serif';p.fillText('사진을 끌어 넣으세요',18,part.height/2);}
           p.globalCompositeOperation='destination-in';p.drawImage(sprite,0,0);c.drawImage(part,x,y,part.width*scale,part.height*scale);
-        }else if(element.kind==='text'&&(completionText(project,slot,element,assets)!==element.text||['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>change[k as keyof CompletionEdit]!==undefined))){
+        }else if(element.kind==='text'&&(text!==element.text||['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>change[k as keyof CompletionEdit]!==undefined))){
           const size=change.fontSize??element.fontSize??32,family=change.fontFamily||element.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':/Pretendard/i.test(family)?'Pretendard':family;
           await document.fonts.load((change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"');
-          c.font=(change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"';drawCompletionText(c,element,change,completionText(project,slot,element,assets));
+          c.font=(change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"';drawCompletionText(c,element,change,text);
         }else if(change.color){const part=document.createElement('canvas');part.width=element.width;part.height=element.height;const p=part.getContext('2d')!;p.drawImage(sprite,0,0);p.globalCompositeOperation='source-in';p.fillStyle=change.color;p.fillRect(0,0,part.width,part.height);c.drawImage(part,x,y,part.width*scale,part.height*scale);}
         else c.drawImage(sprite,x,y,element.width*scale,element.height*scale);
         c.restore();
@@ -43,7 +43,7 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
       if(element&&band){const change=slot.edits?.[element.id]||{};ctx.strokeStyle='#d9862f';ctx.lineWidth=3;ctx.strokeRect(change.x??element.x,(change.y??element.y)-band.y+band.top,element.width*(change.scale||1),element.height*(change.scale||1));}
       setError('');
     })().catch(e=>{if(!cancelled)setError(e.message);});return()=>{cancelled=true;};
-  },[template,layout,slot,project,assets,selected,height]);
+  },[template,layout,slot,assets,selected,height]);
   const point=(e:{clientX:number;clientY:number;currentTarget:HTMLCanvasElement})=>{const box=e.currentTarget.getBoundingClientRect(),y=(e.clientY-box.top)/box.height*height,band=bands.find((b:{top:number;height:number})=>y>=b.top&&y<b.top+b.height);return {x:(e.clientX-box.left)/box.width*layout.width,y:band?y-band.top+band.y:y};};
   const hit=(p:{x:number;y:number})=>photos.find(({element}:{element:{id:string;x:number;y:number;width:number;height:number}})=>{const change=slot.edits?.[element.id]||{},x=change.x??element.x,y=change.y??element.y;return p.x>=x&&p.y>=y&&p.x<x+element.width*(change.scale||1)&&p.y<y+element.height*(change.scale||1);});
   return <><div className="completion-preview-scroll"><canvas ref={canvas} width={layout.width} height={height} className="completion-template-preview completion-edit-canvas" aria-label={slot.name+' 사진을 끌어 넣고 드래그해 위치 조정'}

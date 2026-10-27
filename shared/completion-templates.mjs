@@ -1,4 +1,4 @@
-export function completionText(project,slot,element,assets){
+export function completionText(slot,element){
   if(slot.edits?.[element.id]?.text!==undefined)return slot.edits[element.id].text;
   if(slot.position==='space'&&element.binding==='space')return slot.space||element.text||'';
   if(slot.position==='space'&&element.binding==='point')return slot.text||element.text||'';
@@ -54,7 +54,7 @@ export function drawCompletionText(ctx,element,edit,text){
   ctx.textAlign=align;ctx.textBaseline='alphabetic';ctx.fillStyle=edit.color||element.color||'#222222';
   lines.forEach((line,i)=>ctx.fillText(line,x+(align==='center'?width/2:align==='right'?width:0),y+i*leading+baseline));
 }
-export function completionSignature(project,slot,assets){
+export function completionSignature(slot,assets){
   const ids=[...new Set([...slot.photoIds,...Object.values(slot.edits||{}).map(e=>e.photoId).filter(Boolean)])].sort();
   const {name,enabled,...input}=slot;
   return JSON.stringify({version:4,slot:input,photos:ids.map(id=>[id,assets.find(a=>a.id===id&&!a.excluded)?.hash])},(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);

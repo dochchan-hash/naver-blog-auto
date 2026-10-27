@@ -81,7 +81,7 @@ export async function compileCompletionTemplate(template,folder,filename){
   if(composite)composite.width=1;
   return layouts;
 }
-function drawText(ctx,element,edit,text,layout){
+function drawText(ctx,element,edit,text){
   const size=edit.fontSize??element.fontSize??32,font=edit.fontFamily||element.fontFamily||'Malgun Gothic',weight=edit.fontWeight??element.fontWeight??400;
   const normal=s=>s.replace(/(?:[-_ ]?[1-9]?(?:ExtraLight|SemiBold|ExtraBold|Regular|Medium|Light|Bold|Black|Heavy|Thin))$/i,'').replace(/(?:PL|PS)?(?:MT)?$/,'').replace(/[\s_-]/g,'').toLowerCase();
   const family=GlobalFonts.families.find(f=>normal(f.family)===normal(font))?.family;
@@ -104,8 +104,8 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
       else{missing.push(element.name);c.fillStyle='#eef0e9';c.fillRect(0,0,part.width,part.height);c.font='24px "Malgun Gothic",sans-serif';c.fillStyle='#61715d';c.fillText('사진을 선택하세요',18,part.height/2);}
       c.globalCompositeOperation='destination-in';c.drawImage(sprite,0,0);ctx.drawImage(part,x,y,element.width*scale,element.height*scale);part.width=1;
     }else if(element.kind==='text'){
-      const text=completionText(project,slot,element,assets),styled=['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>edit[k]!==undefined);
-      if(text===element.text&&!styled)ctx.drawImage(sprite,x,y,element.width*scale,element.height*scale);else if(text)drawText(ctx,element,edit,text,layout);
+      const text=completionText(slot,element),styled=['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>edit[k]!==undefined);
+      if(text===element.text&&!styled)ctx.drawImage(sprite,x,y,element.width*scale,element.height*scale);else if(text)drawText(ctx,element,edit,text);
     }else if(edit.color){const part=createCanvas(element.width,element.height),c=part.getContext('2d');c.drawImage(sprite,0,0);c.globalCompositeOperation='source-in';c.fillStyle=edit.color;c.fillRect(0,0,part.width,part.height);ctx.drawImage(part,x,y,part.width*scale,part.height*scale);part.width=1;}
     else ctx.drawImage(sprite,x,y,element.width*scale,element.height*scale);
     ctx.restore();
@@ -115,7 +115,7 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
     const sprite=sprites[marker.number];if(sprite)ctx.drawImage(await loadImage(resolve(template.id+'/'+sprite.file)),marker.x,marker.y,27,27);
     else{ctx.fillStyle='#ff7025';ctx.beginPath();ctx.arc(marker.x+13.5,marker.y+13.5,13.5,0,Math.PI*2);ctx.fill();ctx.fillStyle='white';ctx.font='16px "Malgun Gothic"';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(marker.number),marker.x+13.5,marker.y+13.5);}
   }
-  for(const overlay of slot.overlays||[]){if(overlay.backgroundColor&&overlay.backgroundColor!=='transparent'){ctx.fillStyle=overlay.backgroundColor;ctx.fillRect(overlay.x,overlay.y,overlay.width,overlay.height);}drawText(ctx,overlay,overlay,overlay.text,layout);}
+  for(const overlay of slot.overlays||[]){if(overlay.backgroundColor&&overlay.backgroundColor!=='transparent'){ctx.fillStyle=overlay.backgroundColor;ctx.fillRect(overlay.x,overlay.y,overlay.width,overlay.height);}drawText(ctx,overlay,overlay,overlay.text);}
   const height=bands.reduce((sum,b)=>sum+b.height,0);
   if(height===layout.height)return {buffer:canvas.toBuffer('image/jpeg',95),missing,layout};
   const compact=createCanvas(layout.width,height),c=compact.getContext('2d');

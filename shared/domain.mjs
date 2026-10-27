@@ -175,7 +175,7 @@ export function missingSpaceDescriptions(project,assets){
 }
 export function draftWarnings(project,assets) {
   const warnings=[];
-  if(project.postType==='completion')for(const slot of project.completionTemplates||[]){if(slot.enabled!==false&&slot.templateId&&!assets.some(a=>a.templateSlotId===slot.id&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(project,slot,assets)))warnings.push(`${slot.name} 변경 내용을 적용하고 사진칸을 채워 주세요.`);}
+  if(project.postType==='completion')for(const slot of project.completionTemplates||[]){if(slot.enabled!==false&&slot.templateId&&!assets.some(a=>a.templateSlotId===slot.id&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(slot,assets)))warnings.push(`${slot.name} 변경 내용을 적용하고 사진칸을 채워 주세요.`);}
   if(project.templateWarning)warnings.push(project.templateWarning);
   if(!project.original.name.trim()||(!project.postType||project.postType==='recommendation')&&!project.target.name.trim())warnings.push(project.postType&&project.postType!=='recommendation'?'시공 현장을 입력해 주세요.':'원본 현장과 추천 현장을 입력해 주세요.');
   if((project.postType&&project.postType!=='recommendation'?[project.original]:[project.original,project.target]).some(site=>site.details&&!site.type))warnings.push('조회한 아파트의 실제 평형·타입을 선택해 주세요.');
