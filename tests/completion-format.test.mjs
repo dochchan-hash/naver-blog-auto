@@ -32,7 +32,7 @@ test('마감 원본의 처음·끝 구조와 포인트·종합 설명·연락처
  assert.equal(p.introLead,false);assert.equal(p.dividerAfterOutro,false);assert.equal(p.postType,'completion');
 });
 test('마감은 포인트 → 대표 사진 → 종합 설명 → 나머지 사진과 별도 연락처로 구성한다',()=>{
- const project={postType:'completion',completionTemplates:[]},assets=['표지','공사범위','시공전후','거실','거실','거실','거실','작은방3','마무리'].map((space,i)=>({id:String(i),role:'photo',space,order:i,...(i===3?{templateSlotId:'point'}:{})}));
+ const project={postType:'completion',completionTemplates:[{position:'space',space:'거실',templateId:'psd'}]},assets=['표지','공사범위','시공전후','거실','거실','거실','거실','작은방3','마무리'].map((space,i)=>({id:String(i),role:'photo',space,order:i,...(i===3?{templateSlotId:'point'}:{})}));
  const blocks=completionBlocks(project,assets,{intro:'브랜드 인사',sections:[{space:'거실',text:'공간 종합 설명',points:[{title:'확인된 포인트',text:'포인트 설명'}]},{space:'작은방3',text:'마지막 공간도 설명합니다.',points:[]}],outro:'마무리 인사',phone:'1644-0402'},COMPLETION_FORMAT);
  assert.deepEqual(blocks.filter(b=>b.space==='거실').map(b=>b.formatRole||b.kind),['quote','photos','point','pointBody','photos','text','photos']);
  assert.deepEqual(blocks.slice(0,6).map(b=>b.kind),['photos','text','divider','photos','quote','photos']);
@@ -49,4 +49,10 @@ test('마감에서도 사용자가 선택한 질문 인용구만 별도로 배�
    assert.equal(blocks.filter(b=>b.kind==='quote'&&!b.space).length,choice==='none'?0:2);
    assert.equal(blocks.filter(b=>b.text?.includes('답변')).length,choice==='none'?0:2);
  }
+});
+
+test('AI가 쓴 포인트 번호·도입의 구조 제목·끝의 연락처를 중복하지 않고 새 제목을 영상에 쓴다',()=>{
+ const project={postType:'completion',completionTemplates:[{position:'space',space:'거실',templateId:'psd'}],completionVideoId:'video',original:{name:'테스트 현장'},title:''},assets=[{id:'photo',role:'photo',space:'거실',order:0},{id:'video',role:'video',status:'ready',filename:'원본영상.mp4'}],result={title:'새 원고 제목',intro:'브랜드 인사\n\nBEFORE & AFTER',sections:[{space:'거실',text:'공간 설명',points:[{title:'1. 확인한 시공',text:'시공 설명'},{title:'2) 수납 구성',text:'수납 설명'}]}],outro:'마무리 인사\n\nT. 1644-0402',phone:'1644-0402'};
+ const blocks=completionBlocks(project,assets,result,COMPLETION_FORMAT);assert.equal(blocks.find(b=>b.formatRole==='intro').text,'브랜드 인사');assert(!blocks.some(b=>b.text==='BEFORE & AFTER'));assert.deepEqual(blocks.filter(b=>b.formatRole==='point').map(b=>b.text),['1. 확인한 시공','2. 수납 구성']);assert.equal(blocks.find(b=>b.formatRole==='closing').text,'마무리 인사');assert.equal(blocks.filter(b=>b.text?.includes('1644-0402')).length,1);assert.equal(blocks.find(b=>b.kind==='video').text,result.title);
+ const other=completionBlocks(project,assets,{...result,outro:'대표 번호는 1644-0402입니다.\nTel. 1644 0402'},COMPLETION_FORMAT);assert.equal(other.find(b=>b.formatRole==='closing').text,'대표 번호는 1644-0402입니다.');
 });

@@ -44,6 +44,10 @@ class BrowserBridge {
     const cookies=this.credentials?.cookies||[];const saved=['NID_AUT','NID_SES'].every(name=>cookies.some(c=>c.name===name&&(!c.expirationDate||c.expirationDate*1000>Date.now())));const canWrite=saved&&this.credentials.canWrite&&(!expectedBlogId||this.credentials.blogId===expectedBlogId);
     return {available:true,connected:saved,saved,open:false,canWrite:!!canWrite,blogId:this.credentials?.blogId||'',lastVerifiedAt:this.credentials?.lastVerifiedAt,verified:this.publishVerified,reason:saved?'저장된 네이버 계정으로 작성할 수 있습니다.':'네이버 계정을 처음 연결해 주세요.'};
   }
+  async naverCookies(){
+    const cookies=this.window&&!this.window.isDestroyed()?await this.window.webContents.session.cookies.get({}):this.credentials?.cookies||[];
+    return cookies.filter(c=>/(^|\.)naver\.com$/.test(c.domain)&&/^NID_/.test(c.name)&&(!c.expirationDate||c.expirationDate*1000>Date.now())).map(c=>({name:c.name,value:c.value,domain:c.domain,path:c.path||'/',secure:!!c.secure,httpOnly:!!c.httpOnly,expires:c.expirationDate||-1,sameSite:({no_restriction:'None',lax:'Lax',strict:'Strict'})[c.sameSite]||'Lax'}));
+  }
   async changeAccount(){
     if(this.busy)throw Object.assign(new Error('진행 중인 네이버 작업이 끝난 뒤 계정을 변경해 주세요.'),{status:409});
     this.busy=true;this.switching=true;

@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import type {Asset,CompletionEdit,CompletionLayout,CompletionTemplate,Project} from '../../shared/model';
-import {completionBands,completionPhotos,completionMarkers,completionMarkerSprites,isCompletionMarker,completionPan,completionText} from '../../shared/completion-templates.mjs';
+import {completionBands,completionPhotos,completionMarkers,completionMarkerSprites,isCompletionMarker,completionPan,completionText,completionPhotoPlacement,drawCompletionText} from '../../shared/completion-templates.mjs';
 
 type Props={template:Asset;layout:CompletionLayout;slot:CompletionTemplate;project:Project;assets:Asset[];selected:string;select:(id:string)=>void;edit:(id:string,patch:CompletionEdit)=>void;onMarkers:(markers:NonNullable<CompletionTemplate['markers']>)=>void;onPhoto:(id:string,files:File[],photoId?:string)=>Promise<void>;disabled:boolean;};
 export function CompletionPreview({template,layout,slot,project,assets,selected,select,edit,onMarkers,onPhoto,disabled}:Props){
@@ -19,15 +19,13 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
         c.save();c.globalAlpha=(element as typeof element&{opacity?:number}).opacity??1;
         if(element.kind==='photo'||change.photoId){
           const id=change.photoId??photos.find((p:{element:{id:string}})=>p.element.id===element.id)?.id,asset=assets.find(a=>a.id===id),part=document.createElement('canvas');part.width=element.width;part.height=element.height;const p=part.getContext('2d')!;
-          if(asset?.previewUrl){const image=await load(asset.previewUrl),s=Math.max(part.width/image.width,part.height/image.height)*(change.zoom||1),w=image.width*s,h=image.height*s;p.drawImage(image,(part.width-w)/2+(change.cropX||0)/100*(w-part.width)/2,(part.height-h)/2+(change.cropY||0)/100*(h-part.height)/2,w,h);}
+          if(asset?.previewUrl){const image=await load(asset.previewUrl),placement=completionPhotoPlacement(change,element,image);p.drawImage(image,placement.x,placement.y,placement.width,placement.height);}
           else{p.fillStyle='#eef0e9';p.fillRect(0,0,part.width,part.height);p.fillStyle='#61715d';p.font='24px sans-serif';p.fillText('사진을 끌어 넣으세요',18,part.height/2);}
           p.globalCompositeOperation='destination-in';p.drawImage(sprite,0,0);c.drawImage(part,x,y,part.width*scale,part.height*scale);
         }else if(element.kind==='text'&&(completionText(project,slot,element,assets)!==element.text||['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>change[k as keyof CompletionEdit]!==undefined))){
           const size=change.fontSize??element.fontSize??32,family=change.fontFamily||element.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':/Pretendard/i.test(family)?'Pretendard':family;
           await document.fonts.load((change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"');
-          c.font=(change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"';c.fillStyle=change.color||element.color||'#222222';c.textBaseline='top';const width=change.width||element.textWidth||element.width,align=change.align||element.align||'left';c.textAlign=align;let line='',row=0;
-          const write=()=>{c.fillText(line,x+(align==='center'?width/2:align==='right'?width:0),y+row++*size*1.3);line='';};
-          for(const char of String(completionText(project,slot,element,assets))){if(char==='\n'){write();continue;}if(line&&c.measureText(line+char).width>width)write();line+=char;}write();
+          c.font=(change.fontWeight??element.fontWeight??400)+' '+size+'px "'+font+'"';drawCompletionText(c,element,change,completionText(project,slot,element,assets));
         }else if(change.color){const part=document.createElement('canvas');part.width=element.width;part.height=element.height;const p=part.getContext('2d')!;p.drawImage(sprite,0,0);p.globalCompositeOperation='source-in';p.fillStyle=change.color;p.fillRect(0,0,part.width,part.height);c.drawImage(part,x,y,part.width*scale,part.height*scale);}
         else c.drawImage(sprite,x,y,element.width*scale,element.height*scale);
         c.restore();
@@ -35,9 +33,7 @@ export function CompletionPreview({template,layout,slot,project,assets,selected,
       for(const overlay of slot.overlays||[]){
         if(overlay.backgroundColor&&overlay.backgroundColor!=='transparent'){c.fillStyle=overlay.backgroundColor;c.fillRect(overlay.x,overlay.y,overlay.width,overlay.height);}
         const family=overlay.fontFamily||'Malgun Gothic',font=/Freesentation/i.test(family)?'Freesentation':/Pretendard/i.test(family)?'Pretendard':family,size=overlay.fontSize||32,weight=overlay.fontWeight||400;
-        await document.fonts.load(weight+' '+size+'px "'+font+'"');c.font=weight+' '+size+'px "'+font+'"';c.fillStyle=overlay.color||'#222222';c.textBaseline='top';c.textAlign=overlay.align||'left';let line='',row=0;
-        const write=()=>{c.fillText(line,overlay.x+(overlay.align==='center'?overlay.width/2:overlay.align==='right'?overlay.width:0),overlay.y+row++*size*1.3);line='';};
-        for(const char of overlay.text){if(char==='\n'){write();continue;}if(line&&c.measureText(line+char).width>overlay.width)write();line+=char;}write();
+        await document.fonts.load(weight+' '+size+'px "'+font+'"');c.font=weight+' '+size+'px "'+font+'"';drawCompletionText(c,overlay,overlay,overlay.text);
       }
       const sprites=completionMarkerSprites(template);
       for(const marker of markers){const source=sprites[marker.number];if(source?.imageUrl)c.drawImage(await load(source.imageUrl),marker.x,marker.y,27,27);else{c.fillStyle='#ff7025';c.beginPath();c.arc(marker.x+13.5,marker.y+13.5,13.5,0,Math.PI*2);c.fill();c.font='16px sans-serif';c.fillStyle='white';c.textAlign='center';c.textBaseline='middle';c.fillText(String(marker.number),marker.x+13.5,marker.y+13.5);}}

@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
-import {createCanvas} from '@napi-rs/canvas';import {writePsdBuffer} from 'ag-psd';
+import {createCanvas,loadImage} from '@napi-rs/canvas';import {writePsdBuffer} from 'ag-psd';
 import {readCompletionTemplate,compileCompletionTemplate,renderCompletionLayout,refreshCompletionTextStyles} from '../server/completion-templates.mjs';
-import {completionText,completionSignature} from '../shared/completion-templates.mjs';
+import {completionText,completionSignature,drawCompletionText} from '../shared/completion-templates.mjs';
 function source(){
  const base=createCanvas(320,150),b=base.getContext('2d');b.fillStyle='white';b.fillRect(0,0,320,150);
  const text=createCanvas(260,60),c=text.getContext('2d');c.font='500 36px Freesentation';c.fillStyle='#222222';c.fillText('PSD 원본 문구',0,40);b.drawImage(text,20,40);
@@ -26,4 +26,24 @@ test('원본 텍스트는 이미지 그대로 보존하고 문구 편집 시 원
 test('PSD의 아래·위 첨자 크기와 Light·Medium 굵기를 원본 메타데이터에서 복원한다',()=>{
  const canvas=createCanvas(100,80),buffer=writePsdBuffer({width:100,height:80,canvas,children:[{name:'텍스트',canvas,text:{text:'원본',transform:[2,0,0,2,0,0],subscriptSize:.583,style:{font:{name:'Pretendard-Light'},fontSize:40,fontBaseline:2}}}]}),layouts=[{id:'main',elements:[{id:'main.0',fontSize:80,fontWeight:400}]}];
  const [layout]=refreshCompletionTextStyles(buffer,layouts);assert.equal(layout.elements[0].fontWeight,300);assert(Math.abs(layout.elements[0].fontSize-46.64)<.001);
+});
+
+test('수정한 가운데 제목과 오른쪽 프로젝트 문구는 PSD의 점·문단 기준점을 유지한다',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-text-anchor-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ const sprite=createCanvas(100,60),c=sprite.getContext('2d');c.font='32px Freesentation';c.fillText('AAAA',0,35);
+ for(const [position,justification,transform,boxBounds,right]of [['cover','center',[1,0,0,1,150,70],undefined,150],['scope','right',[1,0,0,1,90,70],[0,0,160,80],250]]){
+  const bytes=writePsdBuffer({width:300,height:180,children:[{name:'제목',left:100,top:40,canvas:sprite,text:{text:'AAAA',transform,boxBounds,shapeType:boxBounds?'box':'point',style:{font:{name:'Freesentation-4Regular'},fontSize:32},paragraphStyle:{justification}}}]}),folder=path.join(dir,position),layouts=await compileCompletionTemplate(readCompletionTemplate(bytes),folder,position==='cover'?'표지.psd':'공사범위.psd'),element=layouts[0].elements[0];
+  const refreshed=refreshCompletionTextStyles(bytes,layouts);assert.equal(refreshed[0].elements[0].textX,element.textX);
+  const {buffer}=await renderCompletionLayout({id:position,layouts},{position,photoIds:[],edits:{[element.id]:{text:'BB',align:justification}}},{id:'p'},[],p=>path.join(dir,p)),image=await loadImage(buffer),canvas=createCanvas(300,180),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,300,180).data,xs=[];
+  for(let y=0;y<180;y++)for(let x=0;x<300;x++)if(data[(y*300+x)*4]<80)xs.push(x);
+  assert(xs.length);const left=Math.min(...xs),end=Math.max(...xs);assert(Math.abs((justification==='center'?(left+end)/2:end)-right)<=3,`${position}: ${left}..${end}`);
+ }
+});
+
+test('동일한 포인트 문장은 줄마다 같은 자간과 기준선을 사용하며 빈 문구는 원본을 유지한다',()=>{
+ const c=createCanvas(500,500).getContext('2d');c.font='600 37.5px Pretendard';const element={x:100,y:40,width:350,height:400,text:'원본\n둘째',fontSize:37.5,lineHeight:104,letterSpacing:-1.5},calls=[],fill=c.fillText.bind(c);
+ c.fillText=(text,x,y)=>{calls.push([text,x,y,c.letterSpacing]);fill(text,x,y);};drawCompletionText(c,element,{},'DD\nDD');assert.equal(calls[0][1],calls[1][1]);assert.equal(calls[1][2]-calls[0][2],104);assert.equal(calls[0][3],calls[1][3]);assert.equal(calls[0][3],'-1.5px');
+ assert.equal(completionText({}, {position:'space',text:''}, {...element,binding:'point'}, []),element.text);
+ const slot={id:'slot',position:'beforeAfter',photoIds:[],name:'기존'};assert.equal(completionSignature({original:{name:'a'}},slot,[]),completionSignature({original:{name:'b'}},{...slot,name:'이름 수정',enabled:false},[]));
+ drawCompletionText(c,{...element,height:1},{},'');assert.equal(calls.length,2);assert.equal(completionText({original:{name:'다른 현장'}},{position:'space'},{binding:'siteTitle',text:'원본 제목'},[]),'원본 제목');
 });

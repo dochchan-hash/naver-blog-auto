@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readPsd,getLayerCanvas,getCompositeCanvas,initializeCanvas} from 'ag-psd';
 import {createCanvas,ImageData,loadImage,GlobalFonts} from '@napi-rs/canvas';
-import {completionText,completionPhotos,completionBands,completionMarkers,completionMarkerSprites,isCompletionMarker} from '../shared/completion-templates.mjs';
+import {completionText,completionPhotos,completionBands,completionMarkers,completionMarkerSprites,isCompletionMarker,completionPhotoPlacement,drawCompletionText} from '../shared/completion-templates.mjs';
 import {checkCancelled} from './jobs.mjs';
 initializeCanvas(createCanvas,undefined,(w,h)=>new ImageData(w,h));
 for(const face of ['4Regular','5Medium','7Bold'])GlobalFonts.registerFromPath(fileURLToPath(new URL('./fonts/freesentation/Freesentation-'+face+'.ttf',import.meta.url)));
@@ -25,14 +25,22 @@ function textStyle(layer){
   const t=layer.text,s={...t.style,...[...(t.styleRuns||[])].sort((a,b)=>b.length-a.length)[0]?.style},scale=Math.abs(t.transform?.[3]||1),font=s.font?.name||'Malgun Gothic';
   const baseline=s.fontBaseline===1?t.superscriptSize??.583:s.fontBaseline===2?t.subscriptSize??.583:1,size=(s.fontSize||20)*scale*baseline;
   const weight=/thin/i.test(font)?100:/extralight/i.test(font)?200:/light/i.test(font)?300:/medium/i.test(font)?500:/semibold/i.test(font)?600:/extrabold/i.test(font)?800:/black|heavy/i.test(font)?900:/bold/i.test(font)?700:400;
-  return {fontFamily:font,fontSize:size,fontWeight:weight,color:hex(s.fillColor),align:['center','right'].includes(t.paragraphStyle?.justification)?t.paragraphStyle.justification:'left',lineHeight:s.autoLeading?size*(t.paragraphStyle?.autoLeading||1.2):(s.leading||s.fontSize*1.3||26)*scale,letterSpacing:(s.tracking||0)/1000*size};
+  const first={...t.style,...t.styleRuns?.[0]?.style};
+  return {fontFamily:font,fontSize:size,fontWeight:weight,color:hex(s.fillColor),align:['center','right'].includes(t.paragraphStyle?.justification)?t.paragraphStyle.justification:'left',lineHeight:first.autoLeading?size*(t.paragraphStyle?.autoLeading||1.2):(first.leading||first.fontSize*1.3||26)*scale,letterSpacing:(s.tracking||0)/1000*size};
+}
+function textGeometry(layer,element,layout,rect){
+  const t=layer.text,transform=t.transform||[1,0,0,1,element.x+rect.left,element.y+rect.top],align=textStyle(layer).align;
+  const box=t.boxBounds,sx=Math.abs(transform[0]),sy=Math.abs(transform[3]);
+  const width=box?(box[2]-box[0])*sx:layout.position==='cover'?layout.width*.9:Math.max(element.width,layout.width-(transform[4]-rect.left)-40);
+  const x=transform[4]-rect.left+(box?box[0]*sx:align==='center'?-width/2:align==='right'?-width:0);
+  return {textX:x,textWidth:width,textHeight:Math.max(element.height+(element.fontSize||32)*.4,box?(box[3]-box[1])*sy:layout.position==='space'?layout.height-element.y-40:0)};
 }
 export function refreshCompletionTextStyles(buffer,layouts){
   const psd=readPsd(buffer,{skipLayerImageData:true,skipCompositeImageData:true,skipThumbnail:true});
   const boards=(psd.children||[]).map((layer,i)=>({layer,id:String(i)})).filter(b=>b.layer.artboard);
   if(!boards.length)boards.push({layer:{children:psd.children||[]},id:'main'});
   const layers=new Map(boards.flatMap(({layer,id})=>leaves(layer.children||[],id+'.')).map(({id,layer})=>[id,layer]));
-  return layouts.map(layout=>({...layout,elements:layout.elements.map(element=>{const l=layers.get(element.id);return l?.text?{...element,...textStyle(l)}:element;})}));
+  return layouts.map(layout=>{const rect=boards.find(b=>b.id===layout.id)?.layer.artboard?.rect||{left:0,top:0};return {...layout,elements:layout.elements.map(element=>{const l=layers.get(element.id);return l?.text?{...element,...textStyle(l),...textGeometry(l,element,layout,rect)}:element;})};});
 }
 function category(name){return /표지/.test(name)?'cover':/공사범위/.test(name)?'scope':/비포|애프터/.test(name)?'beforeAfter':/개별공사|안내/.test(name)?'closing':'space';}
 export async function compileCompletionTemplate(template,folder,filename){
@@ -64,9 +72,7 @@ export async function compileCompletionTemplate(template,folder,filename){
           const ordinal=sorted.findIndex(e=>e.id===elementId);if(ordinal>=0)element.binding=['location','area','concept','wall','floor','other'][ordinal];
           if(/Project No\./i.test(element.text))element.binding='project';
         }
-        element.textWidth=position==='cover'?width*.9:Math.max(element.width,width-element.x-40);
-        element.textHeight=position==='space'&&element.binding==='point'?Math.max(element.height,height-element.y-80):element.height+element.fontSize*.4;
-        if(position==='scope'&&l.text.boxBounds){element.textWidth=Math.min(width-element.x-40,l.text.boxBounds[2]*Math.abs(l.text.transform?.[0]||1));element.textHeight=Math.max(element.textHeight,l.text.boxBounds[3]*Math.abs(l.text.transform?.[3]||1));}
+        Object.assign(element,textGeometry(l,element,{width,height,position},r));
       }
       elements.push(element);await new Promise(r=>setImmediate(r));
     }
@@ -80,15 +86,7 @@ function drawText(ctx,element,edit,text,layout){
   const normal=s=>s.replace(/(?:[-_ ]?[1-9]?(?:ExtraLight|SemiBold|ExtraBold|Regular|Medium|Light|Bold|Black|Heavy|Thin))$/i,'').replace(/(?:PL|PS)?(?:MT)?$/,'').replace(/[\s_-]/g,'').toLowerCase();
   const family=GlobalFonts.families.find(f=>normal(f.family)===normal(font))?.family;
   if(!family)throw fail(font+' 글꼴을 사용할 수 없습니다. 원본 문구는 유지할 수 있습니다. 글꼴을 설치하거나 사용할 글꼴을 직접 선택해 주세요.');
-  const width=edit.width||element.textWidth||element.width,height=edit.height||element.textHeight||element.height,lines=[];
-  ctx.font=weight+' '+size+'px "'+family+'"';ctx.letterSpacing=(element.letterSpacing||0)*size/(element.fontSize||size)+'px';
-  for(const paragraph of String(text).split(/\r?\n/)){let line='';for(const character of paragraph){if(line&&ctx.measureText(line+character).width>width){lines.push(line);line='';}line+=character;}lines.push(line);}
-  const metrics=lines.map(line=>ctx.measureText(line||'가')),leading=element.lineHeight?element.lineHeight*size/(element.fontSize||size):size*1.3;
-  const inkHeight=Math.max(...metrics.map(m=>m.actualBoundingBoxAscent+m.actualBoundingBoxDescent));
-  if((lines.length-1)*leading+inkHeight>height||metrics.some(m=>m.width>width))throw fail((element.name||'추가 문구')+' 내용이 영역보다 깁니다. 원래 글자 크기는 유지했습니다. 영역을 넓히거나 글자 크기를 직접 조정해 주세요.');
-  const x=edit.x??(element.binding==='siteTitle'||element.binding==='region'?(layout.width-width)/2:element.x),y=edit.y??element.y,align=edit.align||element.align||'left';
-  ctx.textAlign=align;ctx.textBaseline='alphabetic';ctx.fillStyle=edit.color||element.color||'#222222';
-  lines.forEach((line,i)=>ctx.fillText(line,x+(align==='center'?width/2:align==='right'?width:0),y+i*leading+metrics[i].actualBoundingBoxAscent));
+  ctx.font=weight+' '+size+'px "'+family+'"';drawCompletionText(ctx,element,edit,text);
 }
 export async function renderCompletionLayout(template,slot,project,assets,resolve){
   const layout=template.layouts.find(l=>l.id===(slot.layoutId||template.layouts[0]?.id));if(!layout)throw fail('사용할 PSD 레이아웃을 선택해 주세요.');
@@ -102,7 +100,7 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
     if(element.kind==='photo'||edit.photoId){
       const id=edit.photoId||photos.find(p=>p.element.id===element.id)?.id,photo=assets.find(a=>a.id===id&&a.projectId===project.id&&a.role==='photo'&&!a.excluded&&!a.templateOutput&&a.status==='ready');
       const part=createCanvas(element.width,element.height),c=part.getContext('2d');
-      if(photo){const image=await loadImage(resolve(photo.originalPath)),s=Math.max(part.width/image.width,part.height/image.height)*(edit.zoom||1),w=image.width*s,h=image.height*s;c.drawImage(image,(part.width-w)/2+(edit.cropX||0)/100*(w-part.width)/2,(part.height-h)/2+(edit.cropY||0)/100*(h-part.height)/2,w,h);}
+      if(photo){const image=await loadImage(resolve(photo.originalPath)),p=completionPhotoPlacement(edit,element,image);c.drawImage(image,p.x,p.y,p.width,p.height);}
       else{missing.push(element.name);c.fillStyle='#eef0e9';c.fillRect(0,0,part.width,part.height);c.font='24px "Malgun Gothic",sans-serif';c.fillStyle='#61715d';c.fillText('사진을 선택하세요',18,part.height/2);}
       c.globalCompositeOperation='destination-in';c.drawImage(sprite,0,0);ctx.drawImage(part,x,y,element.width*scale,element.height*scale);part.width=1;
     }else if(element.kind==='text'){

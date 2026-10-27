@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import {createHash,randomUUID} from 'node:crypto';
+import sharp from 'sharp';
 import {readPsd,initializeCanvas} from 'ag-psd';
 import {createCanvas,ImageData,loadImage,GlobalFonts} from '@napi-rs/canvas';
 import {templateSourceSignature} from '../shared/sources.mjs';
@@ -67,8 +68,8 @@ export async function renderTemplate(template,project,photoPath,assets){
   };
   const values=templateFields(project,assets);
   if(kind==='cover'){
-    const image=await loadImage(photoPath),w=photo.right-photo.left,h=photo.bottom-photo.top,scale=Math.max(w/image.width,h/image.height);
-    ctx.save();ctx.beginPath();ctx.rect(photo.left,photo.top,w,h);ctx.clip();ctx.drawImage(image,photo.left+(w-image.width*scale)/2,photo.top+(h-image.height*scale)/2,image.width*scale,image.height*scale);ctx.restore();
+    const w=photo.right-photo.left,h=photo.bottom-photo.top,image=await loadImage(await sharp(photoPath).rotate().resize(w,h,{fit:'cover',kernel:'lanczos3'}).png().toBuffer());
+    ctx.drawImage(image,photo.left,photo.top,w,h);
     replace(fields[0],values.coverTitle,psd.width*.87);
     replace(fields[1],values.coverConcept,psd.width*.87);
   }else{
@@ -84,8 +85,8 @@ export async function renderTemplate(template,project,photoPath,assets){
 export class Templates {
   constructor(store,assets){Object.assign(this,{store,assets});}
   async refreshCompletionStyles(){
-    for(const asset of this.store.assets().filter(a=>a.templateKind==='completion'&&a.layouts?.length&&a.templateVersion!==2)){
-      try{const layouts=refreshCompletionTextStyles(await fs.readFile(this.assets.resolve(asset.originalPath)),asset.layouts);this.store.put('asset',asset.id,{...asset,layouts,templateVersion:2});}
+    for(const asset of this.store.assets().filter(a=>a.templateKind==='completion'&&a.layouts?.length&&a.templateVersion!==3)){
+      try{const layouts=refreshCompletionTextStyles(await fs.readFile(this.assets.resolve(asset.originalPath)),asset.layouts);this.store.put('asset',asset.id,{...asset,layouts,templateVersion:3});}
       catch(error){this.store.put('asset',asset.id,{...asset,warning:'PSD 원본 서식을 다시 읽지 못했습니다. 원본은 보존했습니다. '+error.message});}
     }
   }
@@ -120,7 +121,7 @@ export class Templates {
     update({message:'이미지를 완성했습니다. 미리보기와 JPG 파일을 확인해 주세요.',progress:100});return {project:saved,assets:this.store.assets(projectId)};
   }
   async renderCompletion(project,update,slotId){
-    const slots=(project.completionTemplates||[]).filter(s=>s.templateId&&(!slotId||s.id===slotId));if(!slots.length)throw fail('수정할 마감 PSD 템플릿을 선택해 주세요.');
+    const slots=(project.completionTemplates||[]).filter(s=>s.enabled!==false&&s.templateId&&(!slotId||s.id===slotId));if(!slots.length)throw fail('수정할 마감 PSD 템플릿을 선택해 주세요.');
     const all=this.store.assets(),created=[];let coverAssetId=project.coverAssetId;
     for(const [index,slot]of slots.entries()){
       const template=all.find(a=>a.id===slot.templateId&&a.templateKind==='completion'&&a.status==='ready');if(!template?.layouts?.length)throw fail('마감 PSD를 다시 등록해 레이아웃을 읽어 주세요.');
@@ -134,7 +135,7 @@ export class Templates {
       created.push(id);
       if(slot.position==='cover'&&!missing.length)coverAssetId=id;
     }
-    const active=new Set((project.completionTemplates||[]).map(s=>s.id));for(const a of all.filter(a=>a.projectId===project.id&&a.templateOutput==='completion'&&!active.has(a.templateSlotId)))this.store.put('asset',a.id,{...a,excluded:true});
+    const active=new Set((project.completionTemplates||[]).filter(s=>s.enabled!==false).map(s=>s.id));for(const a of all.filter(a=>a.projectId===project.id&&a.templateOutput==='completion'&&!active.has(a.templateSlotId)))this.store.put('asset',a.id,{...a,excluded:true});
     const next={...project,coverAssetId},assets=this.store.assets(project.id),activePhotos=assets.filter(a=>a.role==='photo'&&!a.excluded),written=project.blocks.filter(b=>b.kind==='photos').flatMap(b=>b.assetIds),samePhotos=activePhotos.length===written.length&&activePhotos.every(a=>written.includes(a.id)),saved=this.store.updateProject(project.id,{coverAssetId,...(project.blocks.length?{blocks:samePhotos?project.blocks:photoLayoutBlocks(next,assets)}:{})});
     update({message:'변경 내용을 적용했습니다. 사진칸과 JPG 미리보기를 확인해 주세요.',progress:100});return {project:saved,assets,created};
   }

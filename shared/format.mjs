@@ -1,3 +1,4 @@
+import {photoUploadBlocks} from './photo-layout.mjs';
 // These defaults were read from all five saved Lemonhouse reference posts.
 export const REFERENCE_FORMAT = {
   postType:'recommendation',
@@ -147,13 +148,13 @@ export function blockTextLines(block,format){
 }
 export const editorFormatMatches=(project,state)=>!editorFormatIssue(project,state);
 export function editorFormatIssue(project,state){
-  const normal=t=>(t||'').replace(/[\s\u200B\uFEFF]/g,''),format=formatFor(project);
+  const normal=t=>(t||'').replace(/[\s\u200B\uFEFF]/g,''),format=formatFor(project),blocks=photoUploadBlocks(project.blocks);
   const marker=(kind,variant)=>`<${kind}:${variant}>`;
-  const expected=project.blocks.map(b=>b.kind==='photos'?marker('photos',b.assetIds.length):b.kind==='divider'?marker('divider',b.variant||format.dividerVariant):['map','video'].includes(b.kind)?marker(b.kind,'default'):b.kind==='quote'?marker('quote',b.variant||format.quoteVariant)+normal(b.text):normal(b.text)).join('');
+  const expected=blocks.map(b=>b.kind==='photos'?marker('photos',b.assetIds.length):b.kind==='divider'?marker('divider',b.variant||format.dividerVariant):['map','video'].includes(b.kind)?marker(b.kind,'default'):b.kind==='quote'?marker('quote',b.variant||format.quoteVariant)+normal(b.text):normal(b.text)).join('');
   const actual=state.components.filter(c=>!c.class.includes('se-documentTitle')).map(c=>c.class.includes('se-placesMap')?marker('map','default'):c.class.includes('se-video')?marker('video','default'):c.class.includes('se-image')?marker('photos',c.photoCount):c.class.includes('se-horizontalLine')?marker('divider',c.class.match(/se-l-(\w+)/)?.[1]):c.class.includes('se-quotation')?marker('quote',c.class.match(/se-l-(\w+)/)?.[1])+normal(c.text):normal(c.text)).join('');
   if(expected!==actual)return '본문·사진·인용구·구분선의 순서 또는 종류가 다릅니다.';
   const photos=state.components.filter(c=>c.class.includes('se-image'));
-  if(project.blocks.filter(b=>b.kind==='photos').some((b,i)=>b.layout&&b.assetIds.length>1&&!photos[i]?.class.includes('se-l-'+b.layout)))return '사진 묶음의 슬라이드·콜라주 형식이 다릅니다.';
+  if(blocks.filter(b=>b.kind==='photos').some((b,i)=>b.layout&&b.assetIds.length>1&&!photos[i]?.class.includes('se-l-'+b.layout)))return '사진 묶음의 슬라이드·콜라주 형식이 다릅니다.';
   if(state.components.some(c=>c.class.includes('se-horizontalLine')&&(c.align!=='center'||!c.centered)))return '구분선의 가운데 정렬이 다릅니다.';
   // A caret in the middle of the final sentence used to split it when the next
   // component was added. Comparing text alone cannot detect that extra break.

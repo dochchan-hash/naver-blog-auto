@@ -1,6 +1,7 @@
 import {needsSourceCheck,sourceReviewCurrent,resolvedSourceEvidence,unresolvedConstructionFacts,draftSourceSignature,templateSourceSignature} from './sources.mjs';
 import {formatFor,textCss,blockTextStyles,blockTextLines,referenceSpaceOrder,referenceStructure,referenceValue} from './format.mjs';
 import {completionSignature} from './completion-templates.mjs';
+import {photoUploadBlocks} from './photo-layout.mjs';
 export const SPACES = ['현관', '거실', '주방', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실'];
 export const PHASES = ['site', 'compare', 'assets', 'write', 'publish'];
 const REFERENCE_URLS = ['224391021069','224386470907','224386525358','224385704870','224385749437'].map(id => `https://blog.naver.com/lemonhouse8/${id}`);
@@ -78,7 +79,7 @@ export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID(
   }
   const last=blocks.reduce((last,b,i)=>b.space&&['heading','quote'].includes(b.kind)?i:last,-1),outro=blocks.findIndex((b,i)=>i>last&&b.kind==='divider');
   blocks.splice(outro<0?blocks.length:outro,0,...newBlocks);
-  return referenceStructure({...project,blocks},format);
+  return postVideoBlocks(project,assets,referenceStructure({...project,blocks},format),createId);
 }
 function completionSpacePhotos(groups){
   const points=groups.filter(g=>g.assets.some(a=>a.templateSlotId)),raw=groups.filter(g=>!points.includes(g)),all=raw.flatMap(g=>g.assets),count=Math.min(2,raw[0]?.assets.length||0),space=groups[0]?.space;
@@ -86,13 +87,16 @@ function completionSpacePhotos(groups){
   const slides=[];for(let i=count;i<all.length;i+=10)slides.push({space,assets:all.slice(i,i+10),layout:all.length-i>1?'slide':undefined});
   return {points,representative,slides};
 }
+export function completionPointSpaces(project){
+  return [...new Set((project.completionTemplates||[]).filter(s=>s.position==='space'&&s.enabled!==false&&s.templateId).map(s=>s.space))];
+}
 export function completionBlocks(project,assets,result,profile,createId=()=>crypto.randomUUID()){
-  const groups=photoGroups(assets,project.coverAssetId),blocks=[];
+  const groups=photoGroups(assets,project.coverAssetId),pointSpaces=completionPointSpaces(project),blocks=[];
   const add=block=>blocks.push({id:createId(),...block});
   const photos=(g,layout)=>add({kind:'photos',space:g.space,assetIds:g.assets.map(a=>a.id),...(g.assets.length>1?{layout:layout==='slide'?'slide':'collage'}:{})});
   const cover=assets.find(a=>a.id===project.coverAssetId&&!a.excluded);
   if(cover)photos({space:'표지',assets:[cover]});else groups.filter(g=>g.space==='표지').forEach(g=>photos(g));
-  add({kind:'text',formatRole:'intro',text:result.intro});
+  add({kind:'text',formatRole:'intro',text:result.intro.split(/\r?\n/).filter(line=>!/^\s*BEFORE\s*&\s*AFTER\s*$/i.test(line)).join('\n').trim()});
   add({kind:'divider',variant:profile.dividerVariant});
   for(const space of ['공사범위','시공전후']){
     const selected=groups.filter(g=>g.space===space);
@@ -108,8 +112,8 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
     add({kind:'quote',space,text:({파우더룸:'안방 파우더룸',드레스룸:'안방 드레스룸',주방베란다:'주방 베란다',안방베란다:'안방 베란다',안방욕실:'안방 욕실',공용욕실:'공용 욕실',작은방1:'작은방 1',작은방2:'작은방 2',작은방3:'작은방 3'})[space]||space,variant:referenceValue(profile.headingVariants,space)||profile.headingQuoteVariant});
     const {points,representative,slides}=completionSpacePhotos(selected);
     points.forEach(g=>photos(g));
-    for(const [i,p]of (section.points||[]).entries()){
-      add({kind:'text',formatRole:'point',space,text:(i+1)+'. '+p.title});
+    for(const [i,p]of (pointSpaces.includes(space)?section.points||[]:[]).entries()){
+      add({kind:'text',formatRole:'point',space,text:(i+1)+'. '+p.title.replace(/^\s*\d+[.)]\s*/, '')});
       add({kind:'text',formatRole:'pointBody',space,text:p.text});
     }
     representative.forEach(g=>photos(g,g.layout));
@@ -118,24 +122,29 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
     written++;if(project.questionQuote==='middle')while(questionIndex<questions.length&&written>=Math.max(1,Math.ceil((questionIndex+1)*total/(questions.length+1))))addQuestion();
   }
   if(project.questionQuote==='end')while(questionIndex<questions.length)addQuestion();
-  add({kind:'text',formatRole:'closing',text:result.outro});
+  const contact=String(result.phone||'').replace(/[\s()-]/g,''),outro=result.outro.split(/\r?\n/).filter(line=>!contact||line.replace(/^\s*T(?:el)?\.?\s*/i,'').replace(/[\s()-]/g,'')!==contact).join('\n').trim();
+  add({kind:'text',formatRole:'closing',text:outro});
   if(result.phone)add({kind:'text',formatRole:'contact',text:'T.'+result.phone});
   add({kind:'divider',variant:profile.dividerVariant});
   groups.filter(g=>g.space==='마무리').forEach(g=>photos(g));
-  return completionMediaBlocks(project,assets,blocks,createId);
+  return completionMediaBlocks({...project,title:result.title||project.title},assets,blocks,createId);
 }
 export function completionMediaBlocks(project,assets,blocks=project.blocks,createId=()=>crypto.randomUUID()){
   if(project.postType!=='completion')return blocks;
-  const oldMap=blocks.find(b=>b.kind==='map'),oldVideo=blocks.find(b=>b.kind==='video'),result=blocks.filter(b=>!['map','video'].includes(b.kind));
+  const oldMap=blocks.find(b=>b.kind==='map'),result=blocks.filter(b=>b.kind!=='map');
   const query=oldMap?.text||[project.original?.name,project.original?.region].filter(Boolean).join(' ');
   const intro=result.findIndex(b=>b.formatRole==='intro');
   if(query&&intro>=0)result.splice(intro+1,0,{id:oldMap?.id||createId(),kind:'map',text:query});
+  return postVideoBlocks(project,assets,result,createId);
+}
+export function postVideoBlocks(project,assets,blocks=project.blocks,createId=()=>crypto.randomUUID()){
+  const oldVideo=blocks.find(b=>b.kind==='video'),result=blocks.filter(b=>b.kind!=='video');
   const video=assets.find(a=>a.id===(project.completionVideoId??oldVideo?.assetIds?.[0])&&a.role==='video'&&!a.excluded&&a.status==='ready');
-  if(video){const closing=result.findIndex(b=>b.kind==='photos'&&b.space==='마무리');result.splice(closing<0?result.length:closing,0,{id:oldVideo?.id||createId(),kind:'video',assetIds:[video.id],text:oldVideo?.text||project.title||video.filename.replace(/\.[^.]+$/,'')});}
+  if(video){const closing=project.postType==='completion'?result.findIndex(b=>b.kind==='photos'&&b.space==='마무리'):-1;result.splice(closing<0?result.length:closing,0,{id:oldVideo?.id||createId(),kind:'video',assetIds:[video.id],text:oldVideo?.assetIds?.[0]===video.id&&oldVideo.text||project.title||video.filename.replace(/\.[^.]+$/,'')});}
   return result;
 }
 function completionPhotoLayout(project,assets,createId){
-  const groups=photoGroups(assets,project.coverAssetId),blocks=project.blocks.filter(b=>!['photos','video'].includes(b.kind)),used=new Set(),result=[];
+  const pointSpaces=completionPointSpaces(project),groups=photoGroups(assets,project.coverAssetId),blocks=project.blocks.filter(b=>b.kind!=='photos'&&(!['point','pointBody'].includes(b.formatRole)||pointSpaces.includes(b.space))),used=new Set(),result=[];
   const photo=g=>({id:createId(),kind:'photos',space:g.space,assetIds:g.assets.map(a=>a.id),...(g.layout?{layout:g.layout}:{})});
   const selected=space=>groups.filter(g=>g.space===space);
   const cover=assets.find(a=>a.id===project.coverAssetId&&!a.excluded);
@@ -166,7 +175,7 @@ export function missingSpaceDescriptions(project,assets){
 }
 export function draftWarnings(project,assets) {
   const warnings=[];
-  if(project.postType==='completion')for(const slot of project.completionTemplates||[]){if(slot.templateId&&!assets.some(a=>a.templateSlotId===slot.id&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(project,slot,assets)))warnings.push(`${slot.name} 변경 내용을 적용하고 사진칸을 채워 주세요.`);}
+  if(project.postType==='completion')for(const slot of project.completionTemplates||[]){if(slot.enabled!==false&&slot.templateId&&!assets.some(a=>a.templateSlotId===slot.id&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(project,slot,assets)))warnings.push(`${slot.name} 변경 내용을 적용하고 사진칸을 채워 주세요.`);}
   if(project.templateWarning)warnings.push(project.templateWarning);
   if(!project.original.name.trim()||(!project.postType||project.postType==='recommendation')&&!project.target.name.trim())warnings.push(project.postType&&project.postType!=='recommendation'?'시공 현장을 입력해 주세요.':'원본 현장과 추천 현장을 입력해 주세요.');
   if((project.postType&&project.postType!=='recommendation'?[project.original]:[project.original,project.target]).some(site=>site.details&&!site.type))warnings.push('조회한 아파트의 실제 평형·타입을 선택해 주세요.');
@@ -202,10 +211,10 @@ export function paragraphHtml(block,format) {
 export function exportHtml(project, assets) {
   const byId = new Map(assets.map(a=>[a.id,a]));
   const format=formatFor(project);
-  const blocks=project.blocks.map((b,i)=>{
+  const content=photoUploadBlocks(project.blocks),blocks=content.map((b,i)=>{
     if(b.kind==='map')return `<p style="margin:24px 0">현장 지도: ${escapeHtml(b.text)}</p>`;
     if(b.kind==='video'){const a=byId.get(b.assetIds?.[0]);return a?`<figure><video controls preload="metadata" src="${escapeHtml(a.originalUrl)}" style="width:100%"></video><figcaption>${escapeHtml(b.text)}</figcaption></figure>`:'';}
-    const pointGap=project.postType==='completion'&&b.formatRole==='point'&&project.blocks[i-1]?.formatRole==='pointBody';
+    const pointGap=project.postType==='completion'&&b.formatRole==='point'&&content[i-1]?.formatRole==='pointBody';
     if(b.kind==='divider'){const variant=b.variant||format.dividerVariant,sprites={line3:'width:238px;height:9px;background-position:-102px -350px',line4:'width:192px;height:23px;background-position:-92px -306px',line6:'width:44px;height:44px;background-position:-422px -46px'};return `<hr data-naver-variant="${variant}" style="margin:36px auto;border:0;${sprites[variant]?`background-image:url(https://editor-static.pstatic.net/v/basic/1.78.1/img/se-sp-viewer.ee5afa38.png);background-size:466px 418px;${sprites[variant]}`:'width:100%;height:1px;background:#ddd'}"/>`;}
     if(b.kind==='photos')return `<div style="display:flex;gap:4px;margin:20px 0;${b.layout==='slide'?'overflow-x:auto;scroll-snap-type:x mandatory':''}">${(b.assetIds||[]).map(id=>{const a=byId.get(id);return a?`<img src="${escapeHtml(a.originalUrl)}" alt="${escapeHtml(a.space)}" style="width:${b.layout==='slide'?100:100/(b.assetIds?.length||1)}%;${b.layout==='slide'?'flex:0 0 100%;scroll-snap-align:start;':''}${isPlanCollage(project,b,assets)?'aspect-ratio:1;object-fit:cover':'object-fit:contain'}"/>`:'';}).join('')}</div>`;
     const paragraph=paragraphHtml(b,format),style=blockTextStyles(b,format)[0];

@@ -39,7 +39,6 @@ export class Assets {
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
     if(!['photo','construction','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
-    if(role==='video'&&this.store.get('project',projectId).postType!=='completion')throw fileError('동영상은 카페 마감에 첨부해 주세요.');
     if(role==='template'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('PSD 템플릿은 시공사례 또는 마감에 첨부해 주세요.');
     const id=randomUUID(),folder=this.resolve(id),templateLimit=this.store.get('project',projectId).postType==='completion'?256:64;await fsp.mkdir(folder,{mode:0o700});
     const dest=path.join(folder,'original');let filename,bytes=0,hash,head=Buffer.alloc(0),work,error;
@@ -58,7 +57,7 @@ export class Assets {
         bb.on('close',async()=>{await work;if(error)return reject(error);if(!seen||!bytes)return reject(fileError('빈 파일은 첨부할 수 없습니다.'));resolve();});req.pipe(bb);
       });
       const mime=detectMime(head);
-      if((role==='video')!==!!mime?.startsWith('video/'))throw fileError(role==='video'?'MP4 또는 MOV 동영상을 선택해 주세요.':'동영상은 마감 동영상 영역에 첨부해 주세요.');
+      if((role==='video')!==!!mime?.startsWith('video/'))throw fileError(role==='video'?'MP4 또는 MOV 동영상을 선택해 주세요.':'동영상은 하단 동영상 영역에 첨부해 주세요.');
       if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD 파일을 선택해 주세요.');
       if((role==='template')!==(mime==='image/vnd.adobe.photoshop'))throw fileError(role==='template'?'PSD 템플릿 파일을 선택해 주세요.':'PSD는 시공사례 템플릿 영역에 첨부해 주세요.');
       if(role==='construction'&&!['application/pdf','image/jpeg'].includes(mime))throw fileError('공사시공내역은 PDF 또는 JPG 파일을 선택해 주세요.');
@@ -73,7 +72,7 @@ export class Assets {
           const layouts=await compileCompletionTemplate(template,folder,filename),p=this.store.get('project',projectId),slots=p.completionTemplates||[],position=layouts[0].position;
           if(slots.length>=100)throw fileError('마감 템플릿은 최대 100개까지 등록할 수 있습니다.');
           await fsp.copyFile(path.join(folder,layouts[0].previewFile),this.resolve(previewPath));
-          Object.assign(asset,{projectId:'completion-templates',templateKind:'completion',templateVersion:2,status:'ready',previewPath,layouts});this.store.put('asset',id,asset);
+          Object.assign(asset,{projectId:'completion-templates',templateKind:'completion',templateVersion:3,status:'ready',previewPath,layouts});this.store.put('asset',id,asset);
           const blank=slots.find(s=>!s.templateId&&s.position===position),slot={id:blank?.id||randomUUID(),name:filename.replace(/\.psd$/i,''),position,space:blank?.space||'거실',templateId:id,layoutId:layouts[0].id,text:'',photoIds:[]};
           this.store.updateProject(projectId,{completionTemplates:blank?slots.map(s=>s.id===blank.id?slot:s):[...slots,slot]});this.store.put('templates','completion',{...this.store.get('templates','completion'),[position]:id});return this.store.asset(id);
         }

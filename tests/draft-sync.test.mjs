@@ -52,3 +52,12 @@ test('시공사례의 PSD 영역에 사진을 놓아도 사진으로 첨부하�
   assert.deepEqual(uploads.map(a=>a.role),['photo','template','photo']);
   uploads.length=0;await app.onFiles([{name:'표지.PSD'},{name:'방.webp'}],'photo');assert.deepEqual(uploads.map(a=>a.role),['template','photo']);
 });
+test('공사전·공사중 메뉴를 열기 전에 기존 원고를 저장하고 세 콘텐츠의 원고는 그대로 유지한다',async()=>{
+  const saved=[],app=appHarness({saveProject:async p=>(saved.push(p),{...p,revision:p.revision+1})});
+  const nodes=[];function visit(node){if(!node||typeof node!=='object')return;nodes.push(node);for(const child of [node.props?.children].flat(Infinity))visit(child);}visit(app.tree);
+  const menu=nodes.find(n=>n.type==='nav'&&n.props['aria-label']==='게시글 종류');
+  assert.deepEqual(Array.from(menu.props.children,n=>n.props.children),['추천글 작성','시공사례 작성','마감 작성 · 카페','공사전 작성 · 카페','공사중 작성 · 카페']);
+  app.update({title:'메뉴를 옮겨도 보존할 원고'});menu.props.children[3].props.onClick();await tick();
+  assert.equal(saved[0].title,'메뉴를 옮겨도 보존할 원고');assert.equal(app.current.current.id,app.project.id);assert.ok(app.states.includes('before'));
+  menu.props.children[4].props.onClick();await tick();assert.ok(app.states.includes('during'));assert.equal(saved.length,1);
+});

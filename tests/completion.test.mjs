@@ -43,7 +43,7 @@ test('카페 참고글 두 편의 서식을 마감 스타일에만 새로 적용
   await ai.refreshFormat(()=>{},'completion');assert.equal(read,1);assert.equal(store.get('style','completion').formatEvidence.length,2);assert.equal(store.get('style','completion').formatEvidence[0].text,'확인한 시공내용');assert.deepEqual(store.get('style','completion').formatProfile,COMPLETION_FORMAT);assert.deepEqual(store.get('style','main'),before);
 });
 test('88장 마감 원고는 특수 이미지·모든 공간·번호별 포인트·왼쪽 정렬을 끝까지 유지한다',async t=>{
-  const {store,ai}=await fixture(t),p=store.createProject('completion');store.updateProject(p.id,{original:{...p.original,name:'테스트 시공 현장'},keywords:[],manualWork:'거실 천장 간접조명 시공'});
+  const {store,ai}=await fixture(t),p=store.createProject('completion');store.updateProject(p.id,{original:{...p.original,name:'테스트 시공 현장'},keywords:[],manualWork:'거실 천장 간접조명 시공',completionTemplates:p.completionTemplates.map(s=>s.position==='space'?{...s,templateId:'point-psd'}:s)});
   store.put('style','completion',{name:'마감',referenceUrls:[],rules:'카페 마감',status:'edited',formatProfile:COMPLETION_FORMAT});
   const photoSpaces=['표지','공사범위','시공전후',...COMPLETION_SPACES,'마무리'];
   for(let i=0;i<88;i++){const space=i<photoSpaces.length?photoSpaces[i]:COMPLETION_SPACES[i%COMPLETION_SPACES.length];store.put('asset','photo-'+i,{id:'photo-'+i,projectId:p.id,role:'photo',space,spaceManual:true,order:i,status:'ready',excluded:false,hash:String(i),analysis:{description:'확인한 현장 사진'}});}

@@ -17,8 +17,19 @@ test('INTERIOR PLAN은 도입 본문과 구분해 원본 색·굵기·왼쪽 정
 function coverFixture(){
   const canvas=createCanvas(1000,1000),ctx=canvas.getContext('2d');ctx.fillStyle='#fafafa';ctx.fillRect(0,0,1000,1000);
   const field=(text,y)=>({name:text,left:100,top:y,right:800,bottom:y+35,text:{text,transform:[1,0,0,1,500,y+25],style:{font:{name:'MalgunGothic'},fontSize:30,fillColor:{r:34,g:34,b:34}},paragraphStyle:{justification:'center'}}});
-  return writePsdBuffer({width:1000,height:1000,canvas,children:[{name:'배경',left:0,top:0,canvas},{name:'메인사진',left:60,top:270,canvas:createCanvas(880,605)},field('이전 현장',110),field('이전 콘셉트',195)]});
+  const photo=createCanvas(880,605);photo.getContext('2d').fillRect(0,0,880,605);
+  return writePsdBuffer({width:1000,height:1000,canvas,children:[{name:'배경',left:0,top:0,canvas},{name:'메인사진',left:60,top:270,canvas:photo},field('이전 현장',110),field('이전 콘셉트',195)]});
 }
+
+test('표지 사진 축소는 원본의 미세 입자를 평균화하고 확대된 노이즈를 만들지 않는다',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-cover-noise-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ const width=6000,height=4000,data=Buffer.alloc(width*height*3);
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const value=((x+y)%2)?112:144,i=(y*width+x)*3;data[i]=data[i+1]=data[i+2]=value;}
+ const photo=path.join(dir,'original.png');await sharp(data,{raw:{width,height,channels:3}}).png().toFile(photo);
+ const before=await fs.readFile(photo),project=newProject('noise','case');project.original.name='화질 확인';project.concept='밝은 공간';
+ const template=readTemplate(coverFixture()),buffer=await renderTemplate(template,project,photo,[]),region={left:template.photo.left+20,top:template.photo.top+20,width:200,height:200},stats=await sharp(await sharp(buffer).extract(region).toBuffer()).stats();
+ assert(stats.channels.every(c=>c.stdev<2));assert(stats.channels.every(c=>Math.abs(c.mean-128)<2));assert.deepEqual(await fs.readFile(photo),before);
+});
 function scopeFixture(){
   const canvas=createCanvas(1500,1500),ctx=canvas.getContext('2d');ctx.fillStyle='#fafafa';ctx.fillRect(0,0,1500,1500);
   const fields=['위치','면적','콘셉트','벽지','바닥','기타'].map((text,i)=>({name:text,left:350,top:220+i*170,right:1000,bottom:250+i*170,text:{text,boxBounds:[0,0,950,i===5?220:110],style:{font:{name:'MalgunGothic'},fontSize:30,fillColor:{r:34,g:34,b:34}}}}));

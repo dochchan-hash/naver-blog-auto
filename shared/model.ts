@@ -2,9 +2,9 @@ export const SPACES = ['현관', '거실', '주방', '안방', '안방욕실', '
 export type PostType = 'recommendation' | 'case' | 'completion';
 export interface CompletionEdit {text?:string;photoId?:string;visible?:boolean;x?:number;y?:number;scale?:number;zoom?:number;cropX?:number;cropY?:number;fontSize?:number;fontFamily?:string;fontWeight?:number;color?:string;align?:'left'|'center'|'right';width?:number;height?:number;}
 export interface CompletionOverlay extends CompletionEdit {id:string;text:string;x:number;y:number;width:number;height:number;backgroundColor?:string;}
-export interface CompletionElement extends CompletionEdit {id:string;name:string;kind:'text'|'photo'|'image';x:number;y:number;width:number;height:number;textWidth?:number;textHeight?:number;binding?:string;imageUrl?:string;}
+export interface CompletionElement extends CompletionEdit {id:string;name:string;kind:'text'|'photo'|'image';x:number;y:number;width:number;height:number;textX?:number;textWidth?:number;textHeight?:number;lineHeight?:number;letterSpacing?:number;binding?:string;imageUrl?:string;}
 export interface CompletionLayout {id:string;name:string;width:number;height:number;position:CompletionTemplate['position'];elements:CompletionElement[];previewUrl:string;}
-export interface CompletionTemplate {id:string;name:string;position:'cover'|'scope'|'beforeAfter'|'space'|'closing';space:string;templateId:string;text:string;photoIds:string[];layoutId?:string;edits?:Record<string,CompletionEdit>;overlays?:CompletionOverlay[];removedRows?:string[];markers?:{number:number;x:number;y:number}[];}
+export interface CompletionTemplate {id:string;name:string;enabled?:boolean;position:'cover'|'scope'|'beforeAfter'|'space'|'closing';space:string;templateId:string;text:string;photoIds:string[];layoutId?:string;edits?:Record<string,CompletionEdit>;overlays?:CompletionOverlay[];removedRows?:string[];markers?:{number:number;x:number;y:number}[];}
 export type Phase = 'site' | 'compare' | 'assets' | 'write' | 'publish';
 export type Role = 'photo' | 'construction' | 'floorplan-original' | 'floorplan-target' | 'template' | 'video';
 export interface ComplexDetails {name:string;region:string;url:string;text:string;types:string[];images:{label:string;url:string}[];supplyArea:string;exclusiveArea:string;selectedType:string;notice:string;}

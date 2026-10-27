@@ -1,14 +1,7 @@
-import {templateFields} from './template-fields.mjs';
-
 export function completionText(project,slot,element,assets){
   if(slot.edits?.[element.id]?.text!==undefined)return slot.edits[element.id].text;
-  if(['cover','scope','closing'].includes(slot.position))return element.text||'';
-  if(element.binding==='space')return slot.space;
-  if(element.binding==='point')return slot.text;
-  if(element.binding==='siteTitle')return [project.original.name,project.original.type||project.original.supplyArea].filter(Boolean).join(' ');
-  if(element.binding==='region')return project.original.region;
-  if(element.binding==='project')return project.templateEdits?.scopeProject||'';
-  if(element.binding)return templateFields(project,assets)[element.binding]||'';
+  if(slot.position==='space'&&element.binding==='space')return slot.space||element.text||'';
+  if(slot.position==='space'&&element.binding==='point')return slot.text||element.text||'';
   return element.text||'';
 }
 export function completionRows(layout){
@@ -39,11 +32,30 @@ export function completionMarkers(slot,layout){
 }
 export function completionMarkerSprites(template){return Object.fromEntries(template.layouts.flatMap(l=>l.elements).filter(isCompletionMarker).map(e=>[Number(e.name[0]),e]));}
 export function completionPan(edit,photo,image,dx,dy){
-  const scale=Math.max(photo.width/image.width,photo.height/image.height)*(edit.zoom||1),overflowX=image.width*scale-photo.width,overflowY=image.height*scale-photo.height;
+  const {rangeX,rangeY}=completionPhotoPlacement(edit,photo,image);
   const clamp=n=>Math.max(-100,Math.min(100,n));
-  return {cropX:overflowX>0?clamp((edit.cropX||0)+dx*200/overflowX):0,cropY:overflowY>0?clamp((edit.cropY||0)+dy*200/overflowY):0};
+  return {cropX:clamp((edit.cropX||0)+dx*200/rangeX),cropY:clamp((edit.cropY||0)+dy*200/rangeY)};
+}
+export function completionPhotoPlacement(edit,photo,image){
+  const scale=Math.max(photo.width/image.width,photo.height/image.height)*(edit.zoom||1),width=image.width*scale,height=image.height*scale;
+  const rangeX=Math.max(width-photo.width,photo.width),rangeY=Math.max(height-photo.height,photo.height);
+  return {x:(photo.width-width)/2+(edit.cropX||0)*rangeX/200,y:(photo.height-height)/2+(edit.cropY||0)*rangeY/200,width,height,rangeX,rangeY};
+}
+export function drawCompletionText(ctx,element,edit,text){
+  if(!text)return;
+  const size=edit.fontSize??element.fontSize??32,ratio=size/(element.fontSize||size),width=edit.width||element.textWidth||element.width,height=edit.height||element.textHeight||element.height;
+  ctx.letterSpacing=(element.letterSpacing||0)*ratio+'px';ctx.fontKerning='normal';
+  const lines=[],leading=(element.lineHeight||size*1.3)*ratio;
+  for(const paragraph of String(text).split(/\r?\n/)){let line='';for(const character of paragraph){if(line&&ctx.measureText(line+character).width>width){lines.push(line);line='';}line+=character;}lines.push(line);}
+  const metrics=lines.map(line=>ctx.measureText(line||'가')),inkHeight=Math.max(...metrics.map(m=>m.actualBoundingBoxAscent+m.actualBoundingBoxDescent));
+  if((lines.length-1)*leading+inkHeight>height||metrics.some(m=>m.width>width))throw Object.assign(new Error((element.name||'추가 문구')+' 내용이 영역보다 깁니다. 원래 글자 크기는 유지했습니다. 영역을 넓히거나 글자 크기를 직접 조정해 주세요.'),{status:400});
+  const align=edit.align||element.align||'left',x=(element.textX??element.x)+(edit.x===undefined?0:edit.x-element.x),y=edit.y??element.y;
+  const baseline=ctx.measureText(String(element.text||text).split(/\r?\n/)[0]||'가').actualBoundingBoxAscent;
+  ctx.textAlign=align;ctx.textBaseline='alphabetic';ctx.fillStyle=edit.color||element.color||'#222222';
+  lines.forEach((line,i)=>ctx.fillText(line,x+(align==='center'?width/2:align==='right'?width:0),y+i*leading+baseline));
 }
 export function completionSignature(project,slot,assets){
   const ids=[...new Set([...slot.photoIds,...Object.values(slot.edits||{}).map(e=>e.photoId).filter(Boolean)])].sort();
-  return JSON.stringify({version:3,slot,...(['cover','scope','closing'].includes(slot.position)?{}:{site:project.original,fields:templateFields(project,assets)}),photos:ids.map(id=>[id,assets.find(a=>a.id===id&&!a.excluded)?.hash])},(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
+  const {name,enabled,...input}=slot;
+  return JSON.stringify({version:4,slot:input,photos:ids.map(id=>[id,assets.find(a=>a.id===id&&!a.excluded)?.hash])},(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 }

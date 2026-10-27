@@ -22,6 +22,7 @@ for(const target of selected){
   for(const key of ['name','version','type','main','dependencies'])assert.deepEqual(packaged[key],manifest[key],`배포 package.json의 ${key}가 다릅니다.`);
   for(const source of sources)if(hash(await fs.readFile(source))!==hash(extractFile(archive,path.normalize(source))))throw new Error(`${target.name}: 최신 코드가 포함되지 않았습니다 (${source}).`);
   const entries=listPackage(archive).map(p=>p.replaceAll('\\','/'));assert(!entries.some(p=>/(?:^|\/)(?:accounts\.enc|studio\.sqlite(?:-[a-z]+)?)(?:\/|$)/.test(p)||/^\/(?:\.local|\.env(?:\.[^/]+)?|tests|scripts|src)(?:\/|$)/.test(p)),`${target.name}: 개인·개발 자료가 포함되었습니다.`);
+  assert(!entries.some(p=>/^\/server\/construction\/(?:cafe\.config\.json|auth(?:\/|$)|(?:cafe\/)?(?:data|assets)(?:\/|$))/.test(p)),`${target.name}: 공사전·공사중 개인 자료가 포함되었습니다.`);
   const nativePath=target.resources+'/app.asar.unpacked/node_modules/'+target.native;
   if(target.name==='Windows x64'){
     const native=await fs.readFile(nativePath),offset=native.readUInt32LE(0x3c);

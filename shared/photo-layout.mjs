@@ -1,3 +1,11 @@
+export function photoUploadBlocks(blocks){
+  return blocks.flatMap(block=>{
+    if(block.kind!=='photos'||!(block.assetIds?.length>10))return [block];
+    const parts=[];for(let i=0;i<block.assetIds.length;i+=10)parts.push({...block,id:i?`${block.id}-part-${i/10+1}`:block.id,assetIds:block.assetIds.slice(i,i+10)});
+    return parts;
+  });
+}
+
 export function photoDropPatches(assets,sourceId,targetId,intent,makeId=()=>crypto.randomUUID()){
   const photos=assets.filter(a=>a.role==='photo').sort((a,b)=>a.order-b.order).map(a=>({...a}));
   const source=photos.find(a=>a.id===sourceId),target=photos.find(a=>a.id===targetId);

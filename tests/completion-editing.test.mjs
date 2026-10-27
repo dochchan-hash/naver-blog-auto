@@ -9,7 +9,7 @@ test('공간 삭제는 전·후 칸을 함께 빼고 다음 공간을 올리며 
  const slot={position:'beforeAfter',photoIds:['1','2','3','4','5','6'],removedRows:['c']};
  assert.equal(completionRows(layout).length,3);assert.deepEqual(completionBands(slot,layout).map(b=>[b.y,b.top,b.height]),[[0,0,110],[220,110,110]]);assert.deepEqual(completionPhotos(slot,layout).map(p=>p.id),['1','2','5','6']);
  assert.deepEqual(completionPhotos({...slot,removedRows:[]},layout).map(p=>p.id),['1','2','3','4','5','6']);assert.equal(completionPhotos({...slot,edits:{a:{photoId:''}}},layout)[0].id,'');
- const crop=completionPan({zoom:2},photo('p',0,0),{width:200,height:100},500,-500);assert.deepEqual(crop,{cropX:100,cropY:-100});assert.deepEqual(completionPan({},photo('p',0,0),{width:100,height:100},30,30),{cropX:0,cropY:0});
+ const crop=completionPan({zoom:2},photo('p',0,0),{width:200,height:100},500,-500);assert.deepEqual(crop,{cropX:100,cropY:-100});assert.deepEqual(completionPan({},photo('p',0,0),{width:100,height:100},30,30),{cropX:60,cropY:60});
 });
 test('비포애프터 JPG도 공간을 압축하고 포인트 번호 1~5를 사진 안에 합성한다',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-editing-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));await fs.mkdir(path.join(dir,'template'));
@@ -18,12 +18,13 @@ test('비포애프터 JPG도 공간을 압축하고 포인트 번호 1~5를 사�
  for(const asset of assets){const image=createCanvas(100,100),c=image.getContext('2d');c.fillStyle=asset.id;c.fillRect(0,0,100,100);await fs.writeFile(path.join(dir,asset.originalPath),image.toBuffer('image/png'));}
  const project=newProject('p','completion'),slot={id:'s',position:'beforeAfter',photoIds:['red','red','green','green','blue','blue'],removedRows:['c']},template={id:'template',layouts:[layout]},rendered=await renderCompletionLayout(template,slot,project,assets,p=>path.join(dir,p)),image=await loadImage(rendered.buffer),sample=createCanvas(200,220),c=sample.getContext('2d');c.drawImage(image,0,0);
  assert.equal(image.height,220);assert.equal(rendered.missing.length,0);assert(c.getImageData(50,50,1,1).data[0]>220);assert(c.getImageData(50,160,1,1).data[2]>220);
+  const shifted=await renderCompletionLayout(template,{...slot,edits:{a:{cropX:100}}},project,assets,p=>path.join(dir,p));c.drawImage(await loadImage(shifted.buffer),0,0);assert(c.getImageData(25,50,1,1).data[1]>230);assert(c.getImageData(75,50,1,1).data[0]>220&&c.getImageData(75,50,1,1).data[1]<40);
  const pointLayout={...layout,position:'space',height:330,elements:[photo('point',0,0,200,330)]},point={id:'point',position:'space',photoIds:['blue'],markers:[1,2,3,4,5].map((number,i)=>({number,x:25,y:10+i*55}))};
  const numbered=await renderCompletionLayout({id:'template',layouts:[pointLayout]},point,project,assets,p=>path.join(dir,p));const n=await loadImage(numbered.buffer),nc=createCanvas(200,330).getContext('2d');nc.drawImage(n,0,0);for(const m of point.markers){const pixel=nc.getImageData(m.x+5,m.y+13,1,1).data;assert(pixel[0]>200&&pixel[2]<90);}
  assert.equal(completionMarkers(point,pointLayout).length,5);assert.notEqual(completionSignature(project,point,assets),completionSignature(project,{...point,markers:point.markers.slice(0,4)},assets));
 });
 test('60장 한 공간도 대표 두 장·설명·최대 10장씩 슬라이드로 나누며 모두 한 번씩 쓴다',()=>{
- const p={...newProject('p','completion'),completionTemplates:[],keywords:[],original:{name:'테스트 현장'},formatProfile:COMPLETION_FORMAT},assets=[{id:'point',role:'photo',templateSlotId:'point',space:'거실',order:0,status:'ready'},...Array.from({length:60},(_,i)=>({id:'p'+i,role:'photo',space:'거실',group:'all',order:i+1,status:'ready'}))];
+ const p={...newProject('p','completion'),completionTemplates:[{id:'point',position:'space',space:'거실',templateId:'psd',photoIds:[]}],keywords:[],original:{name:'테스트 현장'},formatProfile:COMPLETION_FORMAT},assets=[{id:'point',role:'photo',templateSlotId:'point',space:'거실',order:0,status:'ready'},...Array.from({length:60},(_,i)=>({id:'p'+i,role:'photo',space:'거실',group:'all',order:i+1,status:'ready'}))];
  p.blocks=completionBlocks(p,assets,{intro:'인사',sections:[{space:'거실',points:[{title:'포인트',text:'검은 설명'}],text:'공간 설명'}],outro:'마무리'},COMPLETION_FORMAT);
  const blocks=p.blocks.filter(b=>b.space==='거실'),summary=blocks.findIndex(b=>b.kind==='text'&&!b.formatRole);assert.deepEqual(blocks.slice(0,5).map(b=>b.formatRole||b.kind),['quote','photos','point','pointBody','photos']);assert.equal(blocks[summary-1].assetIds.length,2);assert(blocks.slice(summary+1).every(b=>b.layout==='slide'&&b.assetIds.length<=10));
  const ids=p.blocks.filter(b=>b.kind==='photos').flatMap(b=>b.assetIds);assert.equal(ids.length,61);assert.equal(new Set(ids).size,61);assert(!draftWarnings(p,assets).some(w=>w.includes('사진 순서')));assert.deepEqual(photoLayoutBlocks(p,assets).map(b=>({...b,id:''})),p.blocks.map(b=>({...b,id:''})));

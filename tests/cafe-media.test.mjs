@@ -3,11 +3,25 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import {completionBlocks,completionMediaBlocks,photoLayoutBlocks,newProject} from '../shared/domain.mjs';
 import {COMPLETION_FORMAT,editorFormatIssue} from '../shared/format.mjs';
 import {createServer} from '../server/index.mjs';
 import {localApi} from '../scripts/local-api.mjs';
-import {Naver} from '../server/naver.mjs';
+import {Naver,selectMapPlace} from '../server/naver.mjs';
+
+test('지도는 단지명으로 검색하되 전체 주소를 대조하고 동명 단지를 임의 선택하지 않는다',async()=>{
+ const query='기흥역더샵 경기도 용인시 기흥구 기흥역로58번길 78';
+ const link=(name,address)=>({textContent:name+' '+address,dataset:{},getBoundingClientRect:()=>({width:100}),closest:()=>true,querySelector:()=>({textContent:name})});
+ const correct=link('기흥역더샵','경기 용인시 기흥구 기흥역로58번길 78'),wrong=link('기흥역더샵','경기 수원시 팔달구 78');
+ const select=links=>vm.runInNewContext(`(${selectMapPlace.toString()})(${JSON.stringify(query)})`,{document:{querySelector:()=>({}),querySelectorAll:()=>links}});
+ assert.equal(select([wrong,correct]).text,correct.textContent);assert.equal(correct.dataset.lemonPlace,'true');assert.equal(wrong.dataset.lemonPlace,undefined);
+ assert.equal(select([wrong]),null);assert.equal(select([correct,link('기흥역더샵','경기 용인시 기흥구 기흥역로58번길 78')]),null);
+ const calls=[],bridge={evaluate:async(fn,arg)=>fn===selectMapPlace?{name:'기흥역더샵'}:true,click:async()=>{},text:async(selector,text)=>calls.push(text),key:async()=>{}};
+ const naver=new Naver({}, {},bridge);naver.centerMedia=async()=>{};
+ await naver.insertMap({text:query},'기흥역더샵');assert.deepEqual(calls,['기흥역더샵']);
+ calls.length=0;await naver.insertMap({text:'별도로 수정한 장소'},'기흥역더샵');assert.deepEqual(calls,['별도로 수정한 장소']);
+});
 
 test('카페는 인사 뒤 지도, 마지막 안내 사진 앞 동영상을 놓고 사진 재배치에도 보존한다',()=>{
  const p={...newProject('media','completion'),original:{name:'현장 단지',region:'서울'},title:'마감 제목',completionVideoId:'video'},assets=[{id:'photo',role:'photo',space:'거실',order:0},{id:'last',role:'photo',space:'마무리',order:1},{id:'video',role:'video',status:'ready',filename:'현장.mp4'}];
@@ -24,13 +38,13 @@ test('포인트 사이 실제 빈 줄과 지도·동영상의 순서를 확인�
  assert.match(editorFormatIssue(project,state),/번호 사이/);paragraphs.splice(2,0,{blank:true,align:'left',spans:[]});assert.equal(editorFormatIssue(project,state),'');
  components.reverse();assert.match(editorFormatIssue(project,state),/순서/);
 });
-test('동영상은 카페에만 첨부하고 다른 원고의 파일·사진칸 혼용을 거부한다',async t=>{
+test('블로그·카페에 동영상을 첨부하고 다른 원고의 파일·사진칸 혼용을 거부한다',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'cafe-media-')),r=await createServer({dataDir:dir,port:0});t.after(async()=>{await r.close();await fs.rm(dir,{recursive:true,force:true});});
  const {request}=await localApi(r.url),p=await request('/projects','POST',{postType:'completion'}),bytes=Buffer.from('000000206674797069736f6d00000000','hex');
  const upload=(id,role,data=bytes)=>{const form=new FormData();form.append('file',new Blob([data]),'sample.mp4');return request(`/projects/${id}/assets?role=${role}`,'POST',form);};
  const video=await upload(p.id,'video');assert.equal(video.mime,'video/mp4');assert.equal(video.status,'ready');assert.equal(video.previewBytes,undefined);
  await assert.rejects(upload(p.id,'photo'),/동영상은/);await assert.rejects(upload(p.id,'video',Buffer.from('not a video')),/MP4/);
- const blog=await request('/projects','POST',{postType:'case'});await assert.rejects(upload(blog.id,'video'),/카페 마감/);
+ const blog=await request('/projects','POST',{postType:'case'}),blogVideo=await upload(blog.id,'video');assert.equal(blogVideo.role,'video');
  const saved=await request('/projects/'+p.id,'PUT',{...p,blocks:[{id:'v',kind:'video',assetIds:[video.id],text:'영상 제목'}]});assert.equal(saved.blocks[0].text,'영상 제목');
  const other=await request('/projects','POST',{postType:'completion'});await assert.rejects(request('/projects/'+other.id,'PUT',{...other,blocks:saved.blocks}),/다른 원고/);
  await assert.rejects(request('/projects/'+saved.id,'PUT',{...saved,blocks:[{id:'m',kind:'map',text:' '}]}),/지도 검색어/);
