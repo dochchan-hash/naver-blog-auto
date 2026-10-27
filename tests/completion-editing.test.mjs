@@ -23,11 +23,22 @@ test('비포애프터 JPG도 공간을 압축하고 포인트 번호 1~5를 사�
  const numbered=await renderCompletionLayout({id:'template',layouts:[pointLayout]},point,project,assets,p=>path.join(dir,p));const n=await loadImage(numbered.buffer),nc=createCanvas(200,330).getContext('2d');nc.drawImage(n,0,0);for(const m of point.markers){const pixel=nc.getImageData(m.x+5,m.y+13,1,1).data;assert(pixel[0]>200&&pixel[2]<90);}
  assert.equal(completionMarkers(point,pointLayout).length,5);assert.notEqual(completionSignature(project,point,assets),completionSignature(project,{...point,markers:point.markers.slice(0,4)},assets));
 });
-test('60장 한 공간도 대표 두 장·설명·최대 10장씩 슬라이드로 나누며 모두 한 번씩 쓴다',()=>{
+test('60장 한 공간도 첫 사진 한 장·설명·최대 10장씩 슬라이드로 나누며 모두 한 번씩 쓴다',()=>{
  const p={...newProject('p','completion'),completionTemplates:[{id:'point',position:'space',space:'거실',templateId:'psd',photoIds:[]}],keywords:[],original:{name:'테스트 현장'},formatProfile:COMPLETION_FORMAT},assets=[{id:'point',role:'photo',templateSlotId:'point',space:'거실',order:0,status:'ready'},...Array.from({length:60},(_,i)=>({id:'p'+i,role:'photo',space:'거실',group:'all',order:i+1,status:'ready'}))];
  p.blocks=completionBlocks(p,assets,{intro:'인사',sections:[{space:'거실',points:[{title:'포인트',text:'검은 설명'}],text:'공간 설명'}],outro:'마무리'},COMPLETION_FORMAT);
- const blocks=p.blocks.filter(b=>b.space==='거실'),summary=blocks.findIndex(b=>b.kind==='text'&&!b.formatRole);assert.deepEqual(blocks.slice(0,5).map(b=>b.formatRole||b.kind),['quote','photos','point','pointBody','photos']);assert.equal(blocks[summary-1].assetIds.length,2);assert(blocks.slice(summary+1).every(b=>b.layout==='slide'&&b.assetIds.length<=10));
+ const blocks=p.blocks.filter(b=>b.space==='거실'),summary=blocks.findIndex(b=>b.kind==='text'&&!b.formatRole);assert.deepEqual(blocks.slice(0,5).map(b=>b.formatRole||b.kind),['quote','photos','point','pointBody','photos']);assert.deepEqual(blocks[summary-1].assetIds,['p0']);assert.equal(blocks[summary-1].layout,undefined);assert(blocks.slice(summary+1).every(b=>b.layout==='slide'&&b.assetIds.length<=10));
  const ids=p.blocks.filter(b=>b.kind==='photos').flatMap(b=>b.assetIds);assert.equal(ids.length,61);assert.equal(new Set(ids).size,61);assert(!draftWarnings(p,assets).some(w=>w.includes('사진 순서')));assert.deepEqual(photoLayoutBlocks(p,assets).map(b=>({...b,id:''})),p.blocks.map(b=>({...b,id:''})));
+});
+
+for(const count of [1,2,3,11,12,21])test(`마감 ${count}장: 묶음과 관계없이 첫 사진 단독·기존 설명·나머지 슬라이드 순서를 유지한다`,()=>{
+ const p=newProject('p','completion'),assets=Array.from({length:count},(_,i)=>({id:'p'+i,role:'photo',space:'거실',group:i<2?'first':'rest',order:i,status:'ready'})).reverse(),original=structuredClone(assets);
+ const result={intro:'인사',sections:[{space:'거실',text:'직접 수정한 공간 설명'}],outro:'마무리'},expected=completionBlocks(p,assets,result,COMPLETION_FORMAT);
+ const legacy=expected.filter(b=>b.kind!=='photos'),heading=legacy.findIndex(b=>b.space==='거실');legacy.splice(heading+1,0,{id:'old-collage',kind:'photos',space:'거실',layout:'collage',assetIds:original.slice().reverse().map(a=>a.id)});
+ for(const blocks of [expected,photoLayoutBlocks({...p,blocks:legacy},assets)]){
+  const space=blocks.filter(b=>b.space==='거실'),photos=space.filter(b=>b.kind==='photos');assert.deepEqual(space.slice(0,3).map(b=>b.kind),['quote','photos','text']);assert.equal(space[2].text,result.sections[0].text);assert.deepEqual(photos[0].assetIds,['p0']);assert.equal(photos[0].layout,undefined);
+  assert.deepEqual(photos.flatMap(b=>b.assetIds),Array.from({length:count},(_,i)=>'p'+i));assert(photos.slice(1).every(b=>b.assetIds.length<=10&&b.layout===(b.assetIds.length>1?'slide':undefined)));assert.equal(photos.length,1+Math.ceil((count-1)/10));
+ }
+ assert.deepEqual(assets,original);
 });
 test('사진 직접 첨부는 AI 자동 분석 없이 등록하고 공간·번호·다른 현장·레이어 경계를 검사한다',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-editing-api-')),runtime=await createServer({dataDir:path.join(dir,'.local'),port:0});t.after(async()=>{await runtime.close();await fs.rm(dir,{recursive:true,force:true});});const {request}=await localApi(runtime.url);let p=await request('/projects','POST',{postType:'completion'});let calls=0;runtime.auth.status=()=>({connected:true});runtime.ai.analyzeAsset=async()=>{calls++;};

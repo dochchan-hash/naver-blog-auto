@@ -14,7 +14,7 @@ function emptySite() { return {name:'', region:'', type:'', supplyArea:'', exclu
 export const CASE_SPACES=[...SPACES,'복도','알파룸','드레스룸'];
 export const DEFAULT_CASE_STYLE={name:'레몬하우스 시공사례',referenceUrls:['224418954497','224408307594','224406227010','224405900018','224403861966'].map(id=>`https://blog.naver.com/link_design_studio/${id}`),status:'reference',rules:'실제로 시공한 한 현장의 시공사례를 소개합니다. 편집한 표지 → 콘셉트를 소개하는 인용구 → 브랜드 인사와 현장 소개 → INTERIOR PLAN 도면 이미지 → 공간별 영문·한글 제목 인용구 → 사진 묶음 → 확인된 시공 설명 → 마무리 → 구분선 → 브랜드·문의 연락처 순서입니다. 본문은 왼쪽 정렬, 나눔바른고딕 15px, 공간 제목은 밑줄형 인용구로 영문 나눔명조 19px와 한글 나눔고딕 13px를 사용합니다. 사진이 있는 공간만 쓰며 실제 시공 요소와 디자인 효과를 설명하고 다양한 제안 어미를 섞습니다. 참고글의 현장명·오타·편집 메모는 복사하지 않습니다.'};
 export const COMPLETION_SPACES=['현관','복도','거실','주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','작은방3','공용욕실','알파룸','베란다'];
-export const DEFAULT_COMPLETION_STYLE={name:'레몬하우스 카페 마감',referenceUrls:['18233','18192'].map(id=>`https://cafe.naver.com/fmbsno1/${id}`),status:'reference',rules:'네이버 카페에 실제 공사 완료 현장을 소개하는 마감 게시글입니다. 표지 → 브랜드 인사와 현장 소개 → 확인한 현장 지도 → line5 구분선 → 공사범위 → 가운데 모서리형 BEFORE & AFTER 인용구와 시공 전후 이미지 → 공간별 왼쪽 세로선 인용구 제목 → 공간 포인트 이미지와 번호 사이 빈 줄 한 줄을 둔 시공 포인트 설명 → 대표 현장 사진 → 공간 종합 설명 → 나머지 현장 사진 → 왼쪽 마무리 인사 → 가운데 주황색 굵은 19px 연락처 → line5 구분선 → 현장 동영상과 제목 → 제공된 마무리 자료 순서입니다. 본문은 왼쪽 정렬 15px 검정, 공간 제목은 왼쪽 정렬 19px 세로선 인용구, 구분선은 line5를 사용합니다. 확인된 시공내역만 사용하고 각 공간 설명은 최대 7줄입니다. 다양한 자연스러운 권유와 설명 어미를 섞습니다. 사진이 있는 공간만 쓰고 다른 현장명·주소·오타는 복사하지 않습니다.'};
+export const DEFAULT_COMPLETION_STYLE={name:'레몬하우스 카페 마감',referenceUrls:['18233','18192'].map(id=>`https://cafe.naver.com/fmbsno1/${id}`),status:'reference',rules:'네이버 카페에 실제 공사 완료 현장을 소개하는 마감 게시글입니다. 표지 → 브랜드 인사와 현장 소개 → 확인한 현장 지도 → line5 구분선 → 공사범위 → 가운데 모서리형 BEFORE & AFTER 인용구와 시공 전후 이미지 → 공간별 왼쪽 세로선 인용구 제목 → 공간 포인트 이미지와 번호 사이 빈 줄 한 줄을 둔 시공 포인트 설명 → 공간별 첫 현장 사진 1장 단독 → 공간 종합 설명 → 나머지 현장 사진 슬라이드 → 왼쪽 마무리 인사 → 가운데 주황색 굵은 19px 연락처 → line5 구분선 → 현장 동영상과 제목 → 제공된 마무리 자료 순서입니다. 본문은 왼쪽 정렬 15px 검정, 공간 제목은 왼쪽 정렬 19px 세로선 인용구, 구분선은 line5를 사용합니다. 확인된 시공내역만 사용하고 각 공간 설명은 최대 7줄입니다. 다양한 자연스러운 권유와 설명 어미를 섞습니다. 사진이 있는 공간만 쓰고 다른 현장명·주소·오타는 복사하지 않습니다.'};
 export function styleKey(postType){return postType==='completion'?'completion':postType==='case'?'case':'main';}
 export function postLabel(project){return project.postType==='completion'?'마감':project.postType==='case'?'시공사례':'추천글';}
 export function postSite(project){return project.postType&&project.postType!=='recommendation'?project.original:project.target;}
@@ -82,9 +82,9 @@ export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID(
   return postVideoBlocks(project,assets,referenceStructure({...project,blocks},format),createId);
 }
 function completionSpacePhotos(groups){
-  const points=groups.filter(g=>g.assets.some(a=>a.templateSlotId)),raw=groups.filter(g=>!points.includes(g)),all=raw.flatMap(g=>g.assets),count=Math.min(2,raw[0]?.assets.length||0),space=groups[0]?.space;
-  const representative=all.length?[{space,assets:all.slice(0,count),layout:count>1?'collage':undefined}]:[];
-  const slides=[];for(let i=count;i<all.length;i+=10)slides.push({space,assets:all.slice(i,i+10),layout:all.length-i>1?'slide':undefined});
+  const points=groups.filter(g=>g.assets.some(a=>a.templateSlotId)),all=groups.filter(g=>!points.includes(g)).flatMap(g=>g.assets),space=groups[0]?.space;
+  const representative=all.length?[{space,assets:[all[0]]}]:[];
+  const slides=[];for(let i=1;i<all.length;i+=10)slides.push({space,assets:all.slice(i,i+10),layout:all.length-i>1?'slide':undefined});
   return {points,representative,slides};
 }
 export function completionPointSpaces(project){
