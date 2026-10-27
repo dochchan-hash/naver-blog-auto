@@ -29,7 +29,7 @@ export const api={
   naverStatus:()=>request<Bootstrap['browser']>('/naver/status',{method:'POST'}),
   changeNaverAccount:()=>request<Bootstrap['browser']>('/naver/change-account',{method:'POST'}),
   readPost:(url:string)=>request<{text:string;title:string;url:string}>('/naver/read-post',{method:'POST',body:JSON.stringify({url})}),
-  search:(query:string)=>request<{results:{name:string;key?:string;url?:string;label?:string;region?:string;suggested?:boolean}[]}>('/naver/search',{method:'POST',body:JSON.stringify({query})}),
+  search:(query:string,region='')=>request<{results:{name:string;key?:string;url?:string;label?:string;address?:string;region?:string;suggested?:boolean}[]}>('/naver/search',{method:'POST',body:JSON.stringify({query,region})}),
   selectComplex:(key:string)=>request<ComplexDetails>('/naver/select-complex',{method:'POST',body:JSON.stringify({key})}),
   complex:(url:string,type='')=>request<ComplexDetails>('/naver/complex',{method:'POST',body:JSON.stringify({url,type})}),
   floorplan:(projectId:string,role:Role,url:string)=>request<Asset>('/naver/floorplan',{method:'POST',body:JSON.stringify({projectId,role,url})}),

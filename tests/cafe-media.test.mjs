@@ -8,19 +8,33 @@ import {completionBlocks,completionMediaBlocks,photoLayoutBlocks,newProject} fro
 import {COMPLETION_FORMAT,editorFormatIssue} from '../shared/format.mjs';
 import {createServer} from '../server/index.mjs';
 import {localApi} from '../scripts/local-api.mjs';
-import {Naver,selectMapPlace} from '../server/naver.mjs';
+import {Naver} from '../server/naver.mjs';
+import {mapTarget,mapQueries,chooseMapPlace,readMapPlaces} from '../shared/places.mjs';
 
 test('지도는 단지명으로 검색하되 전체 주소를 대조하고 동명 단지를 임의 선택하지 않는다',async()=>{
  const query='기흥역더샵 경기도 용인시 기흥구 기흥역로58번길 78';
- const link=(name,address)=>({textContent:name+' '+address,dataset:{},getBoundingClientRect:()=>({width:100}),closest:()=>true,querySelector:()=>({textContent:name})});
+ const link=(name,address)=>({textContent:name+' '+address,dataset:{},getBoundingClientRect:()=>({width:100}),closest:()=>true,querySelector:selector=>({textContent:selector.includes('address')?address:name})});
  const correct=link('기흥역더샵','경기 용인시 기흥구 기흥역로58번길 78'),wrong=link('기흥역더샵','경기 수원시 팔달구 78');
- const select=links=>vm.runInNewContext(`(${selectMapPlace.toString()})(${JSON.stringify(query)})`,{document:{querySelector:()=>({}),querySelectorAll:()=>links}});
- assert.equal(select([wrong,correct]).text,correct.textContent);assert.equal(correct.dataset.lemonPlace,'true');assert.equal(wrong.dataset.lemonPlace,undefined);
+ const select=links=>{const root={querySelectorAll:()=>links};const state=vm.runInNewContext(`(${readMapPlaces.toString()})()`,{document:{querySelector:()=>({closest:()=>root})}});return chooseMapPlace(mapTarget(query),state.list);};
+ assert.equal(select([wrong,correct]).text,correct.textContent);assert.equal(correct.dataset.lemonPlaceIndex,'1');
  assert.equal(select([wrong]),null);assert.equal(select([correct,link('기흥역더샵','경기 용인시 기흥구 기흥역로58번길 78')]),null);
- const calls=[],bridge={evaluate:async(fn,arg)=>fn===selectMapPlace?{name:'기흥역더샵'}:true,click:async()=>{},text:async(selector,text)=>calls.push(text),key:async()=>{}};
+ let name='기흥역더샵';const calls=[],bridge={evaluate:async(fn,arg)=>fn===readMapPlaces?{list:[{index:0,name,text:name+' 경기 용인시 기흥구 기흥역로58번길 78'}]}:true,click:async()=>{},text:async(selector,text)=>calls.push(text),key:async()=>{}};
  const naver=new Naver({}, {},bridge);naver.centerMedia=async()=>{};
  await naver.insertMap({text:query},'기흥역더샵');assert.deepEqual(calls,['기흥역더샵']);
- calls.length=0;await naver.insertMap({text:'별도로 수정한 장소'},'기흥역더샵');assert.deepEqual(calls,['별도로 수정한 장소']);
+ calls.length=0;name='별도로 수정한 장소';await naver.insertMap({text:name},'기흥역더샵');assert.deepEqual(calls,[name]);
+});
+
+test('초기 현장명과 원고 이름이 달라도 부산시·광역시 주소로 같은 아파트를 찾는다',async t=>{
+ const address='부산시 강서구 명지국제5로 60',site={name:'명지동 에일린의뜰',region:address},target=mapTarget('에일린의뜰 '+address,site);
+ const correct={index:1,name:'명지에일린의뜰아파트',address:'부산광역시 강서구 명지국제5로 60',text:'명지에일린의뜰아파트 부산 강서구 명지국제5로 60'};
+ assert.equal(chooseMapPlace(target,[{...correct,index:0,address:'부산 강서구 명지국제5로 160'},correct]),correct);
+ assert.equal(chooseMapPlace(target,[{...correct,name:'명지에일린의뜰아파트 관리사무소'}]),null);
+ assert(mapQueries(target).includes('에일린의뜰'));assert(mapQueries(target).includes(address));
+ assert.equal(chooseMapPlace({...target,name:'에일린으뜰',aliases:[]},[correct]),correct);
+ let clock=0;t.mock.method(Date,'now',()=>clock+=1000);const calls=[];
+ const bridge={evaluate:async fn=>fn===readMapPlaces?{list:calls.at(-1)===address?[correct]:[],empty:true}:true,click:async()=>{},text:async(selector,text)=>calls.push(text),key:async()=>{}};
+ const naver=new Naver({}, {},bridge);naver.centerMedia=async()=>{};await naver.insertMap({text:'에일린의뜰 '+address},site);
+ assert.deepEqual(calls,['명지동 에일린의뜰','에일린의뜰',address]);
 });
 
 test('카페는 인사 뒤 지도, 마지막 안내 사진 앞 동영상을 놓고 사진 재배치에도 보존한다',()=>{

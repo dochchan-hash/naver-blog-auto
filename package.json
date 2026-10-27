@@ -68,6 +68,7 @@
       "!**/.v8-cache/**"
     ],
     "asarUnpack": [
+      "shared/places.mjs",
       "server/construction/**",
       "node_modules/playwright/**",
       "node_modules/playwright-core/**",

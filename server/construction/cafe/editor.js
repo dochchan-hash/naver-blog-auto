@@ -221,6 +221,9 @@ async function insertPhotos(page, files, layout, log) {
 
 /** 지도(장소) 첨부. 실패해도 글 입력을 멈추지 않는다 (직접 넣도록 안내). */
 async function insertPlace(page, query, address, log) {
+  const {mapTarget,mapQueries,chooseMapPlace,readMapPlaces}=await import('../../../shared/places.mjs');
+  const target=mapTarget(query,{name:query,region:address});
+  const before=await page.locator('.se-component.se-placesMap').count();
   const button = await pick(page, SEL.장소버튼, { timeout: 5000 });
   if (!button) {
     log('장소(지도) 버튼을 찾지 못했습니다. 지도는 직접 넣어 주세요.', 'warn');
@@ -236,33 +239,18 @@ async function insertPlace(page, query, address, log) {
     await closePlacePopup(page);
     return false;
   }
-  await input.fill(query);
-  await input.press('Enter');
-  await page.waitForTimeout(1800);
-
-  const rows = page.locator('.se-popup-placesMap li.se-place-map-search-result-item');
-  const first = await pick(page, ['.se-popup-placesMap li.se-place-map-search-result-item'], { timeout: 8000 });
-  if (!first) {
-    log(`"${query}" 장소 검색 결과가 없습니다. 지도는 직접 넣어 주세요.`, 'warn');
-    await closePlacePopup(page);
-    return false;
+  let chosen;
+  for(const search of mapQueries(target)){
+    await input.fill(search);await input.press('Enter');
+    const started=Date.now();
+    do{const state=await page.evaluate(readMapPlaces);chosen=chooseMapPlace(target,state.list);if(chosen||state.empty&&Date.now()-started>=800)break;await page.waitForTimeout(250);}while(Date.now()-started<5000);
+    if(chosen)break;
   }
-  // 고른 현장의 주소와 같은 줄을 우선한다. 주소가 없으면 이름이 같은 줄, 그것도 없으면 첫 줄.
-  const norm = (t) => String(t).replace(/\s+/g, '');
-  const n = await rows.count();
-  let row = null;
-  for (let i = 0; i < n && !row; i++) {
-    const r = rows.nth(i);
-    const name = ((await r.locator('.se-place-map-search-result-title').innerText()) || '').trim();
-    const addr = ((await r.locator('.se-place-map-search-result-address').innerText()) || '').trim();
-    if (address && norm(addr) === norm(address) && norm(name) === norm(query)) row = r;
+  if(!chosen){
+    log(`"${query}"와 저장된 주소로 같은 단지를 확인하지 못했습니다. 다른 단지를 임의로 넣지 않았습니다.`, 'warn');
+    await closePlacePopup(page);return false;
   }
-  for (let i = 0; i < n && !row; i++) {
-    const name = ((await rows.nth(i).locator('.se-place-map-search-result-title').innerText()) || '').trim();
-    if (norm(name).startsWith(norm(query)) && !/관리사무소|복지관|중개|부동산/.test(name)) row = rows.nth(i);
-  }
-  row = row || rows.first();
-  const label = (((await row.innerText()) || '').replace(/\s*\n\s*/g, ' / ').replace(/\s*추가$/, '')).trim();
+  const row=page.locator(`[data-lemon-place-index="${chosen.index}"]`),label=chosen.text;
   await row.hover();
   await page.waitForTimeout(400);
   await row.locator('button.se-place-add-button').click({ force: true, timeout: 8000 });
@@ -277,9 +265,9 @@ async function insertPlace(page, query, address, log) {
   // 창이 닫히고 지도 컴포넌트가 본문에 들어올 때까지 기다린다. 창이 남아 있으면 다음 동작이 전부 막힌다.
   await page.locator('.se-popup-placesMap').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1200);
-  const added = await page.locator('.se-component.se-placesMap').count();
+  const maps=page.locator('.se-component.se-placesMap'),added=await maps.count()===before+1&&(await maps.last().innerText()).replace(/\s/g,'').includes(chosen.name.replace(/\s/g,''));
   log(added ? `지도 첨부 — ${label}` : `지도를 눌렀지만 본문에서 확인되지 않습니다 — ${label}`, added ? 'info' : 'warn');
-  return added > 0;
+  return added;
 }
 
 /** 장소 창이 열려 있으면 닫는다. 남겨 두면 뒤따르는 클릭이 전부 막힌다. */

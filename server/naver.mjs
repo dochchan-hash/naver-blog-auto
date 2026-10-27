@@ -3,29 +3,15 @@ import {validateNaverUrl,draftWarnings,publicationCategory,paragraphHtml,missing
 import {checkCancelled,jobSignal} from './jobs.mjs';
 import {readPublicationSettings} from '../shared/naver-controls.mjs';
 import {photoUploadBlocks} from '../shared/photo-layout.mjs';
+import {addressKey,placeName,relatedPlace,nameDistance,nameQueries,mapTarget,mapQueries,chooseMapPlace,readMapPlaces} from '../shared/places.mjs';
 import {readReferenceFormat,formatFor,editorFormatMatches,editorFormatIssue,blockTextStyles,blockTextLines} from '../shared/format.mjs';
 const fail=(message,status=422)=>Object.assign(new Error(message),{status});
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
-const complexName=t=>t.replace(/\s*(?:아파트|apt)$/i,'').replace(/\s/g,'').toLowerCase();
-function nameDistance(a,b){
-  let row=Array.from({length:b.length+1},(_,i)=>i);
-  for(let i=1;i<=a.length;i++){const next=[i];for(let j=1;j<=b.length;j++)next[j]=Math.min(next[j-1]+1,row[j]+1,row[j-1]+Number(a[i-1]!==b[j-1]));row=next;}
-  return row[b.length];
-}
 const cleanTags=tags=>[...new Set(tags.map(t=>t.replace(/^#/,'').replace(/\s/g,'')).filter(Boolean))];
 const checkedVideoTags=tags=>{const wanted=cleanTags(tags);if(wanted.length>10||wanted.some(t=>t.length>20))throw fail('동영상 태그를 게시글과 동일하게 넣으려면 태그를 최대 10개·하나당 20자로 입력해 주세요.',400);return wanted;};
 const kstMinute=iso=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(iso)).replaceAll('-','.');
 export function postIdentity(url,blogId){try{const u=new URL(url);if(u.origin!=='https://blog.naver.com')return '';const parts=u.pathname.split('/');if(parts[1]===blogId&&/^\d+$/.test(parts[2]||''))return parts[2];return u.searchParams.get('blogId')===blogId&&/^\d+$/.test(u.searchParams.get('logNo')||'')?u.searchParams.get('logNo'):'';}catch{return '';}}
 export function editorMatches(project,state){const normalize=t=>(t||'').replace(/[\s\u200B\uFEFF]/g,'');return state.title===project.title&&JSON.stringify(state.photoBlocks)===JSON.stringify(photoUploadBlocks(project.blocks).filter(b=>b.kind==='photos').map(b=>b.assetIds.length))&&project.blocks.filter(b=>['text','heading','quote'].includes(b.kind)).every(b=>normalize(state.text).includes(normalize(b.text)));}
-export function selectMapPlace(query){
-  if(!document.querySelector('input[placeholder="장소명을 입력하세요."]'))return null;
-  const normal=s=>s.replace(/경기도/g,'경기').replace(/(서울|부산|대구|인천|광주|대전|울산)(?:특별|광역)시/g,'$1').replace(/[\s,.·()]/g,'').toLowerCase(),q=normal(query),tokens=query.split(/\s+/).filter(Boolean);
-  const links=[...document.querySelectorAll('a')].filter(a=>a.getBoundingClientRect().width&&a.textContent.trim()&&a.closest('[class*="place"],[class*="map"]'));
-  const candidates=links.map(a=>({a,name:a.querySelector('strong')?.textContent?.trim()||a.querySelector('[class*="name"]')?.textContent?.trim()||'',text:a.textContent.trim()})).filter(v=>v.name&&tokens.every(t=>normal(v.text).includes(normal(t))));
-  const exact=candidates.filter(v=>normal(v.name)===q||tokens.some(t=>normal(t)===normal(v.name)));
-  const match=exact.length===1?exact[0]:candidates.length===1?candidates[0]:null;
-  if(!match)return null;match.a.dataset.lemonPlace='true';return {name:match.name,text:match.text};
-}
 export class Naver {
   constructor(store,assets,bridge){Object.assign(this,{store,assets,bridge});this.searches=new Map();}
   requireBridge(){if(!this.bridge)throw fail('네이버 작업은 데스크톱 실행 프로그램에서 사용할 수 있습니다.',503);return this.bridge;}
@@ -72,11 +58,11 @@ export class Naver {
       const reference=postId?await bridge.evaluate(readReferenceFormat,{withEvidence:true,postType:isCafe?'completion':undefined},{selector:selectors,urlContains:postId,readOnly:true}):null;
       return {...result,url,formatProfile:reference?.formatProfile||null,referenceBlocks:reference?.blocks||[]};
   }
-  async searchComplex(query){
+  async searchComplex(query,region=''){
     this.requireBridge();if(!query.trim())throw fail('아파트명을 입력해 주세요.',400);
-    return this.exclusive(()=>this.searchCandidates(query));
+    return this.exclusive(()=>this.searchCandidates(query,region));
   }
-  async searchCandidates(query){
+  async searchCandidates(query,region=''){
       const bridge=this.requireBridge(),keyword=query.trim().replace(/\s*(?:아파트|apt)$/i,'').replace(/\s+/g,' ').trim();
       if(!keyword)throw fail('아파트명을 입력해 주세요.',400);
       if(keyword.length>100)throw fail('아파트명은 100자 이내로 입력해 주세요.',400);
@@ -84,21 +70,21 @@ export class Naver {
       await bridge.click('button',{text:'단지, 주소, 지하철, 초등학교 검색'});
       const selector='#header-search';
       await bridge.waitFor(selector);let state,search=keyword;
-      for(let attempt=0;attempt<3;attempt++){
+      for(search of nameQueries(keyword)){
       await bridge.text(selector,search);const started=Date.now(),until=started+12000;
       do{checkCancelled();state=await bridge.evaluate(keyword=>{
         const normalize=t=>t.replace(/\s+/g,' ').trim();
-        const compact=t=>normalize(t).replace(/\s/g,'').toLowerCase(),input=document.querySelector('#header-search'),root=input?.parentElement?.parentElement;
-        const list=input?.value===keyword?[...root?.querySelectorAll('button')||[]].filter(b=>b.getBoundingClientRect().width>0).map(b=>({name:normalize(b.innerText),complexName:normalize(b.querySelector('[class*="SearchResultList"][class*="__name"]')?.textContent||''),address:normalize(b.querySelector('[class*="SearchResultList"][class*="__address"]')?.textContent||'')})).filter(x=>x.complexName&&x.address&&/^(?:아파트|재건축|오피스텔|주상복합|연립|빌라|도시형생활주택)\s/.test(x.name)&&compact(x.name).includes(compact(keyword))):[];
+        const input=document.querySelector('#header-search'),root=input?.closest?.('[role="dialog"]')||input?.parentElement?.parentElement;
+        const list=input?.value===keyword?[...root?.querySelectorAll('button,[role="option"]')||[]].filter(b=>b.getBoundingClientRect().width>0).map(b=>({name:normalize(b.innerText),complexName:normalize((b.querySelector('[class*="__name"]')||b.querySelector('strong'))?.textContent||''),address:normalize(b.querySelector('[class*="__address"],[class*="address"]')?.textContent||'')})).filter(x=>x.complexName&&x.address&&/아파트|재건축|오피스텔|주상복합|연립|빌라|도시형생활주택/.test(x.name)):[];
         return {list,empty:input?.value===keyword&&/검색 결과가 없습니다/.test(root?.innerText||'')};
       },search,{selector,readOnly:true});if(state.list.length||state.empty&&Date.now()-started>=2000)break;await pause(250);}while(Date.now()<until);
-      const next=attempt===0?complexName(keyword).slice(0,-1):complexName(keyword).slice(0,2);
-      if(state.list.length||!state.empty||complexName(keyword).length<=2||next===search)break;
-      search=next;
+      state.list=state.list.filter(x=>relatedPlace(search,x.complexName));
+      if(state.list.length)break;
       }
       const list=state.list;
-      list.sort((a,b)=>nameDistance(complexName(keyword),complexName(a.complexName))-nameDistance(complexName(keyword),complexName(b.complexName)));
-      const seen=new Set();const unique=list.filter(x=>{if(seen.has(x.name))return false;seen.add(x.name);return true;}).map(x=>{const key=randomUUID();this.searches.set(key,{query:search,label:x.name,complexName:x.complexName});return {...x,key,label:x.name,suggested:complexName(x.complexName)!==complexName(keyword)};});
+      const regionTokens=region.split(/\s+/).filter(Boolean).map(addressKey),score=x=>nameDistance(placeName(keyword),placeName(x.complexName))-regionTokens.filter(t=>addressKey(x.address).includes(t)).length;
+      list.sort((a,b)=>score(a)-score(b));
+      const seen=new Set();const unique=list.filter(x=>{if(seen.has(x.name))return false;seen.add(x.name);return true;}).map(x=>{const key=randomUUID();this.searches.set(key,{query:search,label:x.name,complexName:x.complexName});return {...x,key,label:x.name,suggested:placeName(x.complexName)!==placeName(keyword)};});
       if(!unique.length)throw fail(state.empty?`‘${query}’에 해당하는 단지를 네이버에서 찾지 못했습니다. 아파트명과 차수를 확인해 주세요.`:'네이버 단지 검색 결과가 준비되지 않았습니다. 잠시 후 다시 조회해 주세요.');
       return unique;
   }
@@ -409,15 +395,20 @@ export class Naver {
       update({message:'카페 편집기에 원고를 준비했습니다. 등록은 하지 않았습니다.',progress:100});return result;
     }finally{bridge.reveal?.();}});
   }
-  async insertMap(block,siteName=''){
+  async insertMap(block,site={}){
     const bridge=this.requireBridge(),query=block.text?.trim();if(!query)throw fail('현장 지도 검색어를 입력해 주세요.',400);
+    const target=mapTarget(query,site);
     const before=await bridge.evaluate(()=>document.querySelectorAll('.se-component.se-placesMap').length,null,{selector:'.se-component'});
     await bridge.click('button[aria-label="장소 추가"],button[data-name="map"]');
-    await bridge.text('input[placeholder="장소명을 입력하세요."]',siteName&&query.startsWith(siteName+' ')?siteName:query);await bridge.key('Return');
-    const until=Date.now()+12000;let chosen;
-    do{checkCancelled();chosen=await bridge.evaluate(selectMapPlace,query,{selector:'input[placeholder="장소명을 입력하세요."]'});if(chosen)break;await pause(250);}while(Date.now()<until);
-    if(!chosen)throw fail('현장 지도를 하나로 확인하지 못했습니다. 원고의 지도 검색어에 정확한 아파트명·주소를 입력해 주세요. 현재 글은 보존했습니다.');
-    await bridge.click('[data-lemon-place="true"]');await bridge.click('button.se-place-add-button');await bridge.click('button.se-popup-button-confirm');
+    let chosen;
+    for(const search of mapQueries(target)){
+      await bridge.text('input[placeholder="장소명을 입력하세요."]',search);await bridge.key('Return');
+      const started=Date.now();
+      do{checkCancelled();const state=await bridge.evaluate(readMapPlaces,null,{selector:'input[placeholder="장소명을 입력하세요."]'});chosen=chooseMapPlace(target,state.list);if(chosen||state.empty&&Date.now()-started>=800)break;await pause(250);}while(Date.now()-started<5000);
+      if(chosen)break;
+    }
+    if(!chosen)throw fail('저장된 현장명과 주소로 검색했지만 같은 단지를 확정하지 못했습니다. 동명 단지의 오삽입을 막기 위해 멈췄으며 현재 글은 보존했습니다.');
+    await bridge.click(`[data-lemon-place-index="${chosen.index}"]`);await bridge.click('button.se-place-add-button');await bridge.click('button.se-popup-button-confirm');
     const end=Date.now()+10000;let inserted=false;
     do{checkCancelled();inserted=await bridge.evaluate(({before,name})=>{const maps=[...document.querySelectorAll('.se-component.se-placesMap')];return maps.length===before+1&&maps.at(-1).textContent.replace(/\s/g,'').includes(name.replace(/\s/g,''));},{before,name:chosen.name},{selector:'.se-component'});if(inserted)break;await pause(250);}while(Date.now()<end);
     if(!inserted)throw fail('현장 지도 삽입을 확인하지 못했습니다. 현재 글은 보존했습니다.');
@@ -479,7 +470,7 @@ export class Naver {
       checkCancelled();const block=blocks[i];update({progress:10+Math.round(i/blocks.length*65),message:`본문 입력 ${i+1}/${blocks.length}`});
       if(block.kind==='map'||block.kind==='video'){
         await bridge.appendParagraph();
-        if(block.kind==='map')await this.insertMap(block,project.original?.name?.trim());else await this.insertVideo(block,projectId,project.tags||[]);
+        if(block.kind==='map')await this.insertMap(block,project.original);else await this.insertVideo(block,projectId,project.tags||[]);
       }else if(block.kind==='photos'){
         const ids=block.assetIds||[],files=[];for(const id of ids){const a=this.store.get('asset',id);if(!a||a.role!=='photo'||a.projectId!==projectId)throw fail('사진 원본을 확인할 수 없습니다.');files.push(await this.assets.originalForUpload(a));}
         const before=await bridge.evaluate(()=>document.querySelectorAll('.se-component.se-image img,.se-component.se-imageGroup img').length,null,{selector:'.se-component'});

@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import vm from 'node:vm';import ts from 'typescript';
 import {newProject} from '../shared/domain.mjs';
 import * as domain from '../shared/domain.mjs';import * as templateFields from '../shared/template-fields.mjs';import * as sources from '../shared/sources.mjs';import * as completionTemplates from '../shared/completion-templates.mjs';
+import * as places from '../shared/places.mjs';
 function nodes(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(nodes)];}
 const label=node=>typeof node==='string'?node:node?.props?[node.props.children].flat(Infinity).map(label).join(''):'';
 const button=(tree,text)=>nodes(tree).find(n=>['button','Button'].includes(n.type)&&label(n)===text);
@@ -61,7 +62,7 @@ async function harness(file,exportName,props,api){
   const states=[],refs=[],effects=[];let stateIndex=0,refIndex=0,effectIndex=0,pending=[];
   const hooks={useState:value=>{const i=stateIndex++;if(!(i in states))states[i]=value;return [states[i],next=>states[i]=typeof next==='function'?next(states[i]):next];},useRef:value=>refs[refIndex++]|| (refs[refIndex-1]={current:value}),useEffect:(fn,deps)=>{const i=effectIndex++;if(!effects[i]||deps.some((d,j)=>!Object.is(d,effects[i].deps[j])))pending.push(()=>{effects[i]?.cleanup?.();effects[i]={deps,cleanup:fn()};});}};
   const module={exports:{}},components=new Proxy({},{get:(_,name)=>name==='bytes'?value=>String(value):String(name)});
-  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:name==='../../shared/completion-templates.mjs'?completionTemplates:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},setTimeout,clearTimeout,Date,console,crypto:globalThis.crypto});
+  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:name==='../../shared/completion-templates.mjs'?completionTemplates:name==='../../shared/places.mjs'?places:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},setTimeout,clearTimeout,Date,console,crypto:globalThis.crypto});
   return {render:(component=module.exports[exportName])=>{stateIndex=refIndex=effectIndex=0;pending=[];const tree=component(props);pending.forEach(fn=>fn());return tree;}};
 }
 test('작성 스타일에서 추천글과 시공사례의 링크·규칙·서식을 따로 편집하고 저장한다',async()=>{

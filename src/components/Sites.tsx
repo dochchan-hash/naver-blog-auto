@@ -4,6 +4,7 @@ import type {Project,Asset,Role,ComplexDetails} from '../../shared/model';
 import {api} from '../api';
 import {Field,SectionTitle,Button,Notice,Dropzone,Next} from './Common';
 import {ConstructionSources} from './Construction';
+import {addressKey} from '../../shared/places.mjs';
 type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<unknown>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
 type Candidate={name:string;url?:string;label?:string;key?:string;suggested?:boolean};
 const pyeong=(area:string)=>Number(area)>0?`${(Number(area)/3.305785).toFixed(1)}평`:'';
@@ -20,7 +21,7 @@ function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Prop
   };
   const lookup=async()=>{
     const n=++sequence.current,query=latest.current.name.trim();lastLookup.current=JSON.stringify([project.id,latest.current.name,latest.current.region]);setLoading(true);setError('');setResults([]);
-    try{const res=await api.search(query);if(!valid(n))return;const tokens=latest.current.region.split(/\s+/).filter(Boolean).map(t=>t.replace(/(?:특별자치시|특별시|광역시|시|군|구)$/,''));const matches=res.results.filter(r=>tokens.every(t=>(r.label||r.name).includes(t)));if(matches.length===1&&!matches[0].suggested)await choose(matches[0],n);else{setResults(matches.length?matches:res.results);if(!matches.length)setError('입력한 지역과 일치하는 주소를 찾지 못했습니다. 조회된 주소를 확인하고 현장을 선택해 주세요.');}}
+    try{const res=await api.search(query,latest.current.region);if(!valid(n))return;const tokens=latest.current.region.split(/\s+/).filter(t=>/(?:시|도|구|군|동|읍|면|리)$/.test(t)).map(addressKey);const matches=res.results.filter(r=>tokens.every(t=>addressKey(r.address||r.label||r.name).includes(t)));if(matches.length===1&&!matches[0].suggested)await choose(matches[0],n);else{setResults(matches.length?matches:res.results);if(!matches.length)setError('입력한 지역과 일치하는 주소를 찾지 못했습니다. 조회된 주소를 확인하고 현장을 선택해 주세요.');}}
     catch(e){if(valid(n))setError((e as Error).message);}finally{if(valid(n))setLoading(false);}
   };
   useEffect(()=>{if(!site.name.trim()||site.sourceUrl||busy||lastLookup.current===JSON.stringify([project.id,site.name,site.region]))return;const timer=setTimeout(()=>{void lookup();},1000);return()=>clearTimeout(timer);},[project.id,site.name,site.region,site.sourceUrl,busy]);
