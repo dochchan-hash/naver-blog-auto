@@ -1,8 +1,6 @@
 // 본문 초안 작성 — 사진을 보고 공간별로 묶고, 말투 지침대로 설명을 쓴다.
 //
 // 표지·지도·대표번호·영상은 코드가 넣는다. AI 는 소개글 / 공간별 사진 묶음+설명 / 마무리글만 쓴다.
-const fs = require('fs');
-const path = require('path');
 const ai = require('../lib/ai');
 const { makePreviews } = require('../lib/images');
 const { COMPANY } = require('./config');

@@ -111,14 +111,6 @@ function assignJobId(req, res, next) {
 // ─────────────────────────────────────────────
 // 보조
 // ─────────────────────────────────────────────
-function titlesFor(job) {
-  return titles.후보(job);
-}
-
-function coverTitle(job) {
-  return cover.표지제목(job);
-}
-
 /** 서버가 다시 켜져서 '만드는 중' 에 멈춘 작업을 되돌린다. */
 function healed(job) {
   if (job && job.stage === 'generating' && !logOf(job.id).running) {
@@ -134,7 +126,7 @@ function withTags(j) {
 
 function view(job) {
   const j = withTags(healed(job));
-  return { ...j, coverTitle: coverTitle(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: logOf(j.id).running || logOf(`pub-${j.id}`).running || coverRuns.has(j.id), hasVideo: !!j.video };
+  return { ...j, coverTitle: cover.표지제목(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: logOf(j.id).running || logOf(`pub-${j.id}`).running || coverRuns.has(j.id), hasVideo: !!j.video };
 }
 
 /** 썸네일(작은 사본)을 만들어 돌려준다. 화면 확인용 — 발행에는 원본이 쓰인다. */
@@ -165,7 +157,7 @@ async function makeCover(id, log = () => {}, candidate) {
       photo: path.join(jobs.photoDir(id), photo),
       out: temporary,
       분류: job.분류,
-      제목: coverTitle(job),
+      제목: cover.표지제목(job),
     });
     fs.renameSync(temporary,jobs.coverFile(id));
     jobs.patch(id, { cover: { ...selected, made: true, at: Date.now() }, error: null });
@@ -192,7 +184,7 @@ function mount(app) {
   // 카페 ID 가 없으면 아무것도 못 한다. 화면이 이 메시지를 그대로 보여 준다.
   r.use((req, res, next) => {
     if (CAFE_ID || req.path === '/status') return next();
-    res.status(400).json({ error: '카페 ID 가 설정되지 않았습니다. 저장소 맨 위의 cafe.config.json 에 cafeId 를 넣고 서버를 다시 켜 주세요. (README 참고)' });
+    res.status(400).json({ error: '카페 ID가 설정되지 않았습니다. 사용자 자료 폴더의 construction/cafe.config.json에 cafeId를 넣고 프로그램을 다시 실행해 주세요.' });
   });
   r.use('/jobs/:id', (req, res, next) => {
     if (req.method !== 'GET' && (logOf(req.params.id).running || logOf(`pub-${req.params.id}`).running || coverRuns.has(req.params.id))) return res.status(409).json({ error: '이 원고의 작업이 끝난 뒤 수정해 주세요.' });
@@ -300,7 +292,7 @@ function mount(app) {
       const job = jobs.create(req.jobId, {
         분류, 시도, 구, 동: (b.dong || '').trim(), 아파트명, 평수: (b.size || '').trim(), 메모: (b.memo || '').trim(), photos: files, board,
       });
-      const t = titlesFor(job);
+      const t = titles.후보(job);
       const placeName = (b.placeName || '').trim();
       const place = placeName ? { name: placeName, address: (b.placeAddress || '').trim() } : null;
       jobs.patch(job.id, { titles: t, title: t[0] || '', video, place, tags: tagsLib.build(job) });
@@ -358,7 +350,7 @@ function mount(app) {
   r.post('/jobs/:id/titles', (req, res) => {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '작업을 찾지 못했습니다.' });
-    const t = titlesFor(job);
+    const t = titles.후보(job);
     res.json(view(jobs.patch(job.id, { titles: t, title: t[0] || job.title })));
   });
 
@@ -368,7 +360,7 @@ function mount(app) {
     const job = jobs.get(id);
     if (!job) return res.status(404).json({ error: '작업을 찾지 못했습니다.' });
     try {
-      const t = titlesFor(job);
+      const t = titles.후보(job);
       const f = { titles: t, title: t[0] || job.title, tags: tagsLib.build(job) };
       if ((req.body || {}).repickBoard) {
         const b = boards.pick(job.시도, job.구, job.동);

@@ -21,4 +21,4 @@ function 동표기({ 동, 아파트명 }) {
   return d && !겹침(d, 아파트명) ? d : '';
 }
 
-module.exports = { 겹침, 동표기 };
+module.exports = { 동표기 };

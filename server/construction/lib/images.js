@@ -13,17 +13,12 @@ const sharp = require('sharp');
 const MAX_EDGE = 1280;
 const QUALITY = 80;
 
-/** AI 사본을 두는 폴더. 원본과 섞이지 않게 밑줄로 시작한다. */
-function previewDir(photoDir) {
-  return path.join(photoDir, '_ai');
-}
-
 /**
  * photoDir 안의 사진들을 축소해 _ai/ 에 넣고, 사본 경로 목록을 돌려준다.
  * 이미 만들어 둔 사본이 있으면 다시 만들지 않는다.
  */
 async function makePreviews(photoDir, onLog = () => {}) {
-  const out = previewDir(photoDir);
+  const out = path.join(photoDir, '_ai');
   fs.mkdirSync(out, { recursive: true });
 
   const files = fs
@@ -60,4 +55,4 @@ async function makePreviews(photoDir, onLog = () => {}) {
   return previews;
 }
 
-module.exports = { makePreviews, previewDir };
+module.exports = { makePreviews };

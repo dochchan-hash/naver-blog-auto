@@ -277,4 +277,4 @@ function removeLink(id) {
   return summary();
 }
 
-module.exports = { summary, load, examples, rebuild, addLink, removeLink, articleId, kindOf, fetchArticle };
+module.exports = { summary, load, examples, rebuild, addLink, removeLink, articleId };

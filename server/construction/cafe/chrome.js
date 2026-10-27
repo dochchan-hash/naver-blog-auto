@@ -1,12 +1,5 @@
-// 카페 작업용 브라우저 연결.
-//
-// ① 로그인: 크롬을 `--remote-debugging-port` 로 띄워 사람이 직접 로그인한다. (비밀번호는 이 코드가 다루지 않는다)
-//    로그인된 걸 확인하면 네이버 쿠키를 auth/cafe-cookies.json 에 저장한다. 이후 이 크롬 창은 닫아도 된다.
-// ② 작업: 화면에 창이 뜨지 않도록 "보이지 않는 크롬(headless)"을 따로 띄워, 저장한 쿠키로 로그인된 상태를 만든다.
-//    (네이버 로그인 쿠키는 세션 쿠키라 크롬을 끄면 사라지는데, 파일에 옮겨 두면 앱을 껐다 켜도 이어 쓸 수 있다)
-//
-// 🚨 최신 크롬(136+)은 평소 쓰는 기본 프로필에는 디버그 연결을 열어 주지 않는다.
-//    그래서 로그인 크롬은 반드시 --user-data-dir 로 별도 폴더를 쓴다.
+// 설치형은 스튜디오의 네이버 연결을 메모리로 공유한다.
+// 독립 개발 실행에서만 전용 Chrome과 auth/ 쿠키 파일을 사용한다.
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -205,4 +198,4 @@ async function status() {
   return { running, loggedIn: hasLogin(loadCookies()) };
 }
 
-module.exports = { launch, alive, withContext, status, forgetLogin, useStudioCookies, CAFE_HOME };
+module.exports = { launch, withContext, status, forgetLogin, useStudioCookies };

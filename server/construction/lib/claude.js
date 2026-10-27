@@ -96,17 +96,12 @@ function explain(raw) {
 function run({
   prompt,
   cwd,
-  addDirs = [],
   allowedTools,
   model,
-  resume, // 이전 claude.run() 이 돌려준 sessionId. 주면 그 세션에 이어 붙는다(지침·초안이 캐시로 재사용된다).
   onLog = () => {},
   onProcess = () => {},
 }) {
   const args = ['-p', prompt];
-  // 🚨 순서 중요: --resume 은 -p 프롬프트 바로 뒤, --output-format 보다 앞에 둔다.
-  // (실제로 이 순서로 동작을 확인했다 — 다른 순서는 검증하지 않았다.)
-  if (resume) args.push('--resume', resume);
   args.push(
     '--output-format', 'stream-json',
     '--verbose',
@@ -115,7 +110,6 @@ function run({
   );
   // -p 모드에서는 권한 질문에 답할 사람이 없다. 쓸 도구를 미리 못박아 둔다.
   if (allowedTools) args.push('--allowedTools', allowedTools);
-  for (const dir of addDirs) args.push('--add-dir', dir);
   if (model) args.push('--model', model);
 
   return new Promise((resolve, reject) => {
@@ -130,8 +124,6 @@ function run({
     let buffer = '';
     let finalText = '';
     let errorText = '';
-    let usage = null;
-    let sessionId = null; // 모든 이벤트에 찍혀 나온다 — 다음 호출에서 --resume 으로 쓴다.
 
     child.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
@@ -150,8 +142,6 @@ function run({
           continue; // JSON 이 아닌 줄은 무시한다
         }
 
-        if (event.session_id) sessionId = event.session_id;
-
         if (event.type === 'assistant' && event.message) {
           for (const block of event.message.content || []) {
             if (block.type === 'text' && block.text.trim()) {
@@ -162,7 +152,6 @@ function run({
           }
         } else if (event.type === 'result') {
           finalText = event.result || '';
-          usage = event.usage || null;
           if (event.is_error) errorText = finalText;
         }
       }
@@ -186,9 +175,9 @@ function run({
       if (/hit your (session|usage) limit|rate limit/i.test(finalText)) {
         return reject(new Error(explain(finalText)));
       }
-      resolve({ text: finalText, usage, sessionId });
+      resolve({ text: finalText });
     });
   });
 }
 
-module.exports = { run, explain };
+module.exports = { run };

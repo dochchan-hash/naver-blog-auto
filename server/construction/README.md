@@ -6,8 +6,11 @@
 원고·설정·로고·로그인 자료는 스튜디오 사용자 폴더의 construction/에만 저장합니다.
 cafe.config.json, data/, assets/, auth/는 배포 소스에 포함하지 않습니다.
 
-첫 연결은 기존 프로그램의 cafe.config.json 및 cafe/data/, cafe/assets/를
-해당 사용자 폴더로 복사해 사용합니다. 기존 파일은 덮어쓰지 않습니다.
+처음 구성하는 PC는 사용자 자료 폴더의 construction/cafe.config.json에 카페와 AI를 설정합니다.
+예: {"cafeId":"카페 숫자 ID","companyName":"업체명","phone":"대표번호","ai":{"provider":"codex"}}
+기존 웹 프로그램의 cafe.config.json 및 cafe/data/, cafe/assets/를 옮길 때도 이 폴더를 사용하며,
+기존 파일은 덮어쓰지 않습니다. 변경 후 스튜디오를 다시 실행합니다.
 설치형 스튜디오는 기존 보안 저장소의 네이버 연결을 메모리로만 공유합니다. 별도 쿠키 파일로 저장하지 않습니다.
 독립 개발 서버는 전용 Chrome 창에서 사용자가 직접 로그인합니다. AI는 기존 Codex/Claude CLI 연결을 사용합니다.
 카페 입력 API와 편집기 양쪽에서 임시등록만 허용합니다. 최종 등록은 카페에서 직접 합니다.
+표지의 기본 로고 두 개는 public/brand에 포함하며, 사용자 assets/의 같은 이름 파일을 우선합니다.

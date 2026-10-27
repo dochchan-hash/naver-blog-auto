@@ -519,28 +519,6 @@ async function clickOption(page, triggerSel, optionSel, label, log) {
   return false;
 }
 
-/** (예전 방식) 드롭다운을 열고 글자가 맞는 항목을 고른다. */
-async function pickFromDropdown(page, triggerSel, 라벨, log) {
-  try {
-    await page.click(triggerSel);
-    await page.waitForTimeout(500);
-    const option = page
-      .locator('button:visible')
-      .filter({ hasText: new RegExp(`^\\s*${라벨}\\s*$`) })
-      .first();
-    if (await option.count()) {
-      await option.click();
-      await page.waitForTimeout(500);
-      return true;
-    }
-    await page.keyboard.press('Escape');
-  } catch {
-    // 서식 실패가 글 입력을 막을 이유는 없다.
-  }
-  log(`"${라벨}" 항목을 찾지 못했습니다.`, 'warn');
-  return false;
-}
-
 /**
  * 본문 전체 글꼴·크기를 한 번에 맞춘다 (나눔바른고딕 · 15).
  * 🚨 스마트에디터는 새 문단을 만들 때마다 기본값으로 되돌린다. 입력이 다 끝난 뒤 전체를 선택해 덮어써야 먹는다.
@@ -665,7 +643,7 @@ async function publish({ job, blocks, mode, onLog = () => {} }) {
     if (!['NID_AUT', 'NID_SES'].every((n) => names.has(n))) {
       throw new Error('카페에 로그인돼 있지 않습니다. 설정 탭의 [로그인 창 열기]로 열린 크롬에서 로그인한 뒤 다시 시도해 주세요.');
     }
-    // 화면에 창이 뜨지 않는다 — chrome.withContext 가 보이지 않는 크롬(headless)을 쓴다.
+    // 화면 준비는 보이는 Chrome을 남기고, 임시등록은 백그라운드에서 끝낸다.
     const page = await context.newPage();
     if (mode === 'prepare') await page.bringToFront();
     try {

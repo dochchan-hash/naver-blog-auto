@@ -126,9 +126,9 @@ function run({ prompt, cwd, images = [], model, onLog = () => {}, onProcess = ()
       if (code !== 0 || !text) {
         return reject(new Error(explain(errorText.trim() || `codex 가 오류로 종료했습니다 (코드 ${code})`)));
       }
-      resolve({ text, usage: null, sessionId: null });
+      resolve({ text });
     });
   });
 }
 
-module.exports = { run, explain };
+module.exports = { run };

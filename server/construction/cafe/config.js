@@ -1,8 +1,4 @@
-// [카페 공사중] 자동 발행 — 공용 설정과 경로.
-//
-// 회사·카페마다 다른 값(카페 ID, 대표번호, 업체명, AI 종류)은 코드에 두지 않고
-// 저장소 맨 위의 cafe.config.json 에서 읽는다. 이 파일은 git 에 올라가지 않는다.
-// 처음이면 cafe.config.example.json 을 복사해 값을 채운다.
+// 공사전·공사중의 설정은 사용자 자료 폴더에 보관하며 Git과 배포 소스에서 제외한다.
 const fs = require('fs');
 const path = require('path');
 

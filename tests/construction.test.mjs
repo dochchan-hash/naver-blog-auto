@@ -3,10 +3,33 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {once} from 'node:events';
+import {once,EventEmitter} from 'node:events';
 import sharp from 'sharp';
 import vm from 'node:vm';
 import {createServer} from '../server/index.mjs';
+
+test('공사 AI 연결은 원고 텍스트·실행 제한·한도 오류를 유지한다',async()=>{
+  for(const provider of ['claude','codex']){
+    const module={exports:{}},calls=[];let limited=false;
+    const childProcess={spawn:(command,args)=>{
+      calls.push({command,args});const child=new EventEmitter();
+      child.stdout=new EventEmitter();child.stderr=new EventEmitter();
+      child.stdin={on(){},end:prompt=>calls.at(-1).prompt=prompt};
+      queueMicrotask(()=>{
+        const events=provider==='claude'?[{type:'result',result:'새 원고',usage:{},session_id:'unused'}]:[{type:'item.completed',item:{type:'agent_message',text:'새 원고'}}];
+        child.stdout.emit('data',events.map(e=>JSON.stringify(e)).join('\n')+'\n');
+        if(limited)child.stderr.emit('data',provider==='claude'?'hit your usage limit':'quota exceeded');
+        child.emit('close',limited?1:0,null);
+      });return child;
+    }};
+    vm.runInNewContext(await fs.readFile('server/construction/lib/'+provider+'.js','utf8'),{module,exports:module.exports,require:name=>name==='child_process'?childProcess:name==='path'?path:name==='os'?{tmpdir:()=>'/tmp'}:name==='fs'?{readFileSync:()=>{throw Error('no output file');}}:{},process:{platform:'linux',pid:1,env:{}},console});
+    const options={prompt:'공사 원고',cwd:'/test',images:['/test/photo.jpg'],allowedTools:'Read'};
+    assert.equal((await module.exports.run(options)).text,'새 원고');
+    assert(calls[0].args.includes(provider==='claude'?'--allowedTools':'read-only'));
+    if(provider==='codex'){assert.equal(calls[0].prompt,options.prompt);assert(calls[0].args.includes('/test/photo.jpg'));}
+    limited=true;await assert.rejects(module.exports.run(options),/한도/);
+  }
+});
 
 async function setup(t,bridge=null){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'studio-construction-'));
