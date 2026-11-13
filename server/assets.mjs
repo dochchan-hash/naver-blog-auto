@@ -36,9 +36,17 @@ export class Assets {
     }
     return destination;
   }
+  async planPhotoForUpload(asset){
+    const source=this.resolve(asset.originalPath),image=sharp(source,{limitInputPixels:268_402_689});
+    const {width,height}=await image.metadata(),edge=Math.min(width,height,1500);
+    const destination=this.resolve(`${asset.id}/${asset.templateOutput==='scope'?'02-scope':'01-representative'}.jpg`);
+    await image.rotate().resize(edge,edge,{fit:asset.templateOutput==='scope'?'contain':'cover',background:'#fff'}).jpeg({quality:94}).toFile(destination);
+    return destination;
+  }
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
-    if(!['photo','construction','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(!['photo','template-photo','construction','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(role==='template-photo'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('템플릿용 사진은 시공사례나 마감에 첨부해 주세요.');
     if(role==='template'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('PSD 템플릿은 시공사례 또는 마감에 첨부해 주세요.');
     const id=randomUUID(),folder=this.resolve(id),templateLimit=this.store.get('project',projectId).postType==='completion'?256:64;await fsp.mkdir(folder,{mode:0o700});
     const dest=path.join(folder,'original');let filename,bytes=0,hash,head=Buffer.alloc(0),work,error;
@@ -61,7 +69,7 @@ export class Assets {
       if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD 파일을 선택해 주세요.');
       if((role==='template')!==(mime==='image/vnd.adobe.photoshop'))throw fileError(role==='template'?'PSD 템플릿 파일을 선택해 주세요.':'PSD는 시공사례 템플릿 영역에 첨부해 주세요.');
       if(role==='construction'&&!['application/pdf','image/jpeg'].includes(mime))throw fileError('공사시공내역은 PDF 또는 JPG 파일을 선택해 주세요.');
-      if(role==='photo'&&mime==='application/pdf')throw fileError('현장 사진 영역에는 이미지 파일을 넣어 주세요.');
+      if(['photo','template-photo'].includes(role)&&mime==='application/pdf')throw fileError('현장 사진 영역에는 이미지 파일을 넣어 주세요.');
       const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd','video/mp4':'mp4','video/quicktime':'mov'}[mime];
       const originalPath=`${id}/original.${extension}`;await fsp.rename(dest,this.resolve(originalPath));
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
@@ -95,7 +103,7 @@ export class Assets {
       if(asset.mime==='application/pdf')await this.processPdf(asset);
       else {
         const original=this.resolve(asset.originalPath);
-        const edge=asset.role==='photo'?this.store.get('settings','main').photoEdge:1800;
+        const edge=['photo','template-photo'].includes(asset.role)?this.store.get('settings','main').photoEdge:1800;
         const previewPath=`${id}/preview.jpg`;
         const img=sharp(original,{limitInputPixels:268_402_689}).rotate();
         const meta=await img.metadata();
@@ -103,7 +111,7 @@ export class Assets {
         Object.assign(asset,{width:meta.width,height:meta.height,previewPath,previewBytes:info.size,status:'ready'});
       }
       const latest=this.store.get('asset',id);
-      this.store.put('asset',id,{...asset,space:latest.space,group:latest.group,order:latest.order,excluded:latest.excluded});
+      this.store.put('asset',id,{...asset,space:latest.space,spaceManual:latest.spaceManual,layoutManual:latest.layoutManual,group:latest.group,order:latest.order,excluded:latest.excluded});
     }catch(error){this.store.put('asset',id,{...this.store.get('asset',id),status:'error',warning:`원본은 저장되었습니다. 미리보기 처리 실패: ${error.message}`});}
   }
   async processPdf(asset) {

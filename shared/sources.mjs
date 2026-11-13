@@ -2,11 +2,14 @@ import {templateFields} from './template-fields.mjs';
 export function sourceSignature(project,assets){
   return JSON.stringify({cafeUrl:project.cafeUrl,sourceText:project.sourceText,files:assets.filter(a=>a.role==='construction'&&!a.excluded).map(a=>({id:a.id,hash:a.hash})).sort((a,b)=>a.id.localeCompare(b.id)),facts:project.facts.map(f=>({id:f.id,space:f.space,item:f.item,sourceAssetId:f.sourceAssetId,uncertain:f.uncertain,confirmed:f.confirmed}))});
 }
+export function caseCoverPhotos(assets){return assets.filter(a=>['photo','template-photo'].includes(a.role)&&!a.excluded&&!a.templateOutput&&a.status!=='error').sort((a,b)=>a.order-b.order);}
 export function templateSourceSignature(project,assets){
-  const photos=assets.filter(a=>a.role==='photo'&&!a.excluded&&!a.templateOutput).sort((a,b)=>a.order-b.order),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos[0];
+  const photos=caseCoverPhotos(assets),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos.find(a=>a.status==='ready')||photos[0];
   const plan=assets.find(a=>a.id===project.original.floorplanAssetId);
   const fields=templateFields(project,assets);
-  return JSON.stringify({cafe:[project.cafeUrl,project.sourceText],fields:project.scopeTemplateId?fields:{coverTitle:fields.coverTitle,coverConcept:fields.coverConcept},photo:photo?.id,photoHash:photo?.hash,cover:project.coverTemplateId,scope:project.scopeTemplateId,plan:plan?.hash});
+  const crop=project.caseCoverCrop;
+  const cropSignature=crop&&(crop.zoom!==1||crop.x!==0||crop.y!==0)?[crop.zoom,crop.x,crop.y]:undefined;
+  return JSON.stringify({cafe:[project.cafeUrl,project.sourceText],fields:project.scopeTemplateId?fields:{coverTitle:fields.coverTitle,coverConcept:fields.coverConcept},photo:photo?.id,photoHash:photo?.hash,cover:project.coverTemplateId,scope:project.scopeTemplateId,plan:plan?.hash,crop:cropSignature});
 }
 export function needsSourceCheck(project,assets){return !!project.sourceText.trim()&&(project.postType==='case'||assets.some(a=>a.role==='construction'&&!a.excluded));}
 export function sourceReviewCurrent(project,assets){return !!project.sourceReview&&project.sourceReview.signature===sourceSignature(project,assets);}
@@ -38,4 +41,7 @@ export function unresolvedConstructionFacts(project,assets){
   const review=sourceReviewCurrent(project,assets)?project.sourceReview:null;
   const omitted=new Set(review?.conflicts.filter(c=>['pending','exclude','cafe','custom','both'].includes(c.decision)).flatMap(c=>c.constructionFactIds)||[]);
   return project.facts.filter(f=>f.uncertain&&!f.confirmed&&!omitted.has(f.id));
+}
+export function missingWorkItems(plan,blocks){
+  return plan.items.filter(item=>!plan.checks?.some(check=>check.workId===item.id&&blocks.some(b=>b.id===check.blockId&&b.kind==='text'&&(b.space||'공통')===item.space&&check.quote.trim()&&b.text?.includes(check.quote))));
 }

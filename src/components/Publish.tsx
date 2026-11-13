@@ -1,7 +1,7 @@
 import {useEffect,useState} from 'react';
 import {Send,Clock,CheckCircle2,ExternalLink,ShieldCheck,FileCheck} from 'lucide-react';
 import type {Project,Asset,Bootstrap} from '../../shared/model';
-import {draftWarnings,postSite} from '../../shared/domain.mjs';
+import {draftWarnings,caseBodyBlocks,missingSpaceDescriptions,postSite,spaceLabel} from '../../shared/domain.mjs';
 import {CafePublish} from './CafePublish';
 import {api} from '../api';
 import {Field,SectionTitle,Button,Notice} from './Common';
@@ -13,13 +13,14 @@ export function PublishStep({project,assets,update,task,notify,data,openSettings
   useEffect(()=>setResultUrl(''),[project.id]);
   const blogId=data.settings.blogId||(data.browser.connected&&data.browser.canWrite?data.browser.blogId:'')||'';
   const warnings=draftWarnings(project,assets);const newest=data.jobs.find(j=>j.projectId===project.id&&['publish','verify'].includes(j.kind));
+  const photoOnly=project.postType==='case'&&project.blocks.length?missingSpaceDescriptions(project,assets):[];
   const result=(newest?.result||data.jobs.find(j=>j.projectId===project.id&&['publish','verify'].includes(j.kind)&&j.status==='completed'&&j.result)?.result) as {url?:string;scheduled?:boolean;deliveryVerified?:boolean}|undefined;
   const kstInput=project.scheduleAt?new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(project.scheduleAt)).replace(' ','T'):'';
   const record=async()=>{try{await save();await api.recordPublish(project.id,resultUrl,!!project.scheduleAt,project.scheduleAt);await refresh();notify('직접 확인한 등록 결과를 기록했습니다.');}catch(e){notify((e as Error).message);}};
   if(project.postType==='completion')return <CafePublish project={project} assets={assets} update={update} save={save} notify={notify} task={task} busy={busy} available={data.browser.available}/>;
   return <><SectionTitle eyebrow="04 · 네이버 발행" title="마지막으로 확인하고 발행" description="담당 블로그와 사진·원고를 확인해 주세요."/>
     <section className="card"><div className="publish-target"><span className="naver-icon">N</span><div><small>발행할 담당 블로그</small><h3>{blogId||'블로그 연결이 필요합니다'}</h3></div><Button className="secondary small" onClick={openSettings}>연결 설정</Button></div>
-      <div className="publish-summary"><div><small>{project.postType==='case'?'시공 현장':'추천 대상'}</small><strong>{postSite(project).name||'미입력'}</strong></div><div><small>현장 사진</small><strong>{project.blocks.filter(b=>b.kind==='photos').reduce((n,b)=>n+(b.assetIds?.length||0),0)}장</strong></div><div><small>원고 상태</small><strong>{project.draftStatus==='published'?'발행 완료':project.draftStatus==='scheduled'?'예약 등록됨':'발행 준비'}</strong></div></div>
+      <div className="publish-summary"><div><small>{project.postType==='case'?'시공 현장':'추천 대상'}</small><strong>{postSite(project).name||'미입력'}</strong></div><div><small>현장 사진</small><strong>{(caseBodyBlocks(project,assets) as Project['blocks']).filter(b=>b.kind==='photos').reduce((n,b)=>n+(b.assetIds?.length||0),0)}장</strong></div><div><small>원고 상태</small><strong>{project.draftStatus==='published'?'발행 완료':project.draftStatus==='scheduled'?'예약 등록됨':'발행 준비'}</strong></div></div>
       <Field label="발행 방식"><select value={project.publishMode} onChange={e=>update({publishMode:e.target.value as Project['publishMode']})}><option value="review">미리보기 검토 후 발행</option><option value="automatic">검사 통과 후 자동 발행</option></select></Field>
       {project.postType==='case'?<Field label="시공사례 카테고리" hint="담당 블로그에 있는 평형 카테고리를 선택하세요."><select value={project.category||''} onChange={e=>update({category:e.target.value})}><option value="">카테고리 선택</option>{['10PY','20PY','30PY','40PY','50PY~'].map(c=><option key={c}>{c}</option>)}</select></Field>:null}
       <Field label="공개 범위"><select value={project.visibility||'public'} onChange={e=>update({visibility:e.target.value as Project['visibility']})}><option value="public">전체 공개</option><option value="private">비공개 · 본인만 확인</option></select></Field>
@@ -28,6 +29,7 @@ export function PublishStep({project,assets,update,task,notify,data,openSettings
     </section>
     <section className="card"><SectionTitle title="발행 전 확인"/><div className="checklist"><div><CheckCircle2 size={17}/>사진은 원본 파일로 전달합니다.</div><div><CheckCircle2 size={17}/>{project.postType==='case'?'실제 현장에 확인된 시공 내용을 소개합니다.':'원본 시공 현장과 추천 현장을 구분합니다.'}</div><div><CheckCircle2 size={17}/>등록 결과를 확인해야 완료로 표시합니다.</div></div>
       {warnings.length?<Notice tone="warning"><strong>확인이 필요합니다</strong><ul>{warnings.map(w=><li key={w}>{w}</li>)}</ul></Notice>:<Notice tone="success"><ShieldCheck size={17}/>원고의 기본 검사를 통과했습니다.</Notice>}
+      {photoOnly.length?<Notice><strong>공간 설명 확인</strong><p>{photoOnly.map(spaceLabel).join(' · ')}에 공간 설명이 없습니다. 사진만 넣을 공간이라면 그대로 진행할 수 있습니다.</p></Notice>:null}
       {!data.browser.verified?<Notice>이 컴퓨터에서 실제 네이버 발행을 아직 검증하지 않았습니다. 편집기 화면이 바뀌거나 등록 결과가 불명확하면 원고를 보존하고 확인을 요청합니다.</Notice>:null}
       <label className="check-row review-checkbox"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>담당 블로그, 본문, 사진 묶음과 예약 시각을 확인했습니다.</label>
       <Button className="secondary full" busy={busy} disabled={!project.title||!project.blocks.length||!blogId||!data.browser.available} onClick={()=>task('prepare')}>네이버 편집기에 준비하고 확인</Button>

@@ -34,7 +34,21 @@ test('초기 현장명과 원고 이름이 달라도 부산시·광역시 주소
  let clock=0;t.mock.method(Date,'now',()=>clock+=1000);const calls=[];
  const bridge={evaluate:async fn=>fn===readMapPlaces?{list:calls.at(-1)===address?[correct]:[],empty:true}:true,click:async()=>{},text:async(selector,text)=>calls.push(text),key:async()=>{}};
  const naver=new Naver({}, {},bridge);naver.centerMedia=async()=>{};await naver.insertMap({text:'에일린의뜰 '+address},site);
- assert.deepEqual(calls,['명지동 에일린의뜰','에일린의뜰',address]);
+ assert.equal(calls[0],'명지동 에일린의뜰');assert(calls.includes('에일린의뜰'));assert.equal(calls.at(-1),address);
+});
+
+test('지도는 같은 지역의 유사 이름·도로명 표기를 허용하고 상가·다른 차수·다른 지역을 구분한다',()=>{
+ const site={name:'율리벽산블루밍1단지',region:'부산시 금곡동'},target=mapTarget('율리벽산블루밍',site);
+ const correct={index:1,name:'율리벽산블루밍1단지아파트',address:'부산광역시 북구 효열로 1'};
+ assert.equal(chooseMapPlace(target,[{index:0,name:'율리역벽산블루밍2단지아파트',address:'부산광역시 북구 효열로 2'},correct]),correct);
+ assert.equal(chooseMapPlace(target,[{...correct,name:'율리역벽산블루밍1단지아파트'}]).name,'율리역벽산블루밍1단지아파트');
+ assert.equal(chooseMapPlace(target,[{...correct,address:'서울시 북구 효열로 1'}]),null);
+ assert.equal(chooseMapPlace(target,[{...correct,address:'부산광역시 북구 화명동 1'}]),null);
+ const known=mapTarget('율리벽산블루밍 부산시 금곡동',{...site,details:{name:site.name,region:'부산광역시 북구 효열로 1'}});
+ assert.equal(known.address,'부산광역시 북구 효열로 1');assert.equal(chooseMapPlace(known,[{...correct,address:'부산 북구 효열로2'}]),null);
+ const myeongji=mapTarget('에일린의뜰 부산시 강서구 명지국제5로 60'),apartment={index:0,name:'명지국제신도시에일린의뜰아파트',address:'부산광역시 강서구 명지국제5로 60'};
+ assert.equal(chooseMapPlace(myeongji,[apartment,{index:1,name:'부산명지에일린의뜰점',address:apartment.address}]),apartment);
+ assert.equal(chooseMapPlace({name:'벽산블루밍',address:'부산시'},[{...correct,name:'벽산블루밍1단지아파트'},{...correct,index:2,name:'벽산블루밍2단지아파트'}]),null);
 });
 
 test('카페는 인사 뒤 지도, 마지막 안내 사진 앞 동영상을 놓고 사진 재배치에도 보존한다',()=>{
@@ -69,8 +83,8 @@ test('포인트 간 빈 문단은 네이버 실제 입력에서도 추가한다'
  assert.deepEqual(events,['append','1. 조명','append','첫 설명','append','Return','2. 가구']);
 });
 test('동영상 제목·정보는 각각 입력하고 키 이벤트로 확정한 뒤 완료한다',async()=>{
- const reads=[0,true,true,true,false,true,'짧은 영상 제목'],calls=[],bridge={frame:async()=>true,evaluate:async(fn,arg,options)=>{if(options?.userGesture)calls.push('done');return reads.shift();},click:async selector=>calls.push(selector),upload:async(files,trigger)=>{assert.deepEqual(files,['/original.mp4']);await trigger();},text:async(selector,text)=>calls.push([selector,text]),key:async key=>calls.push(key),clickNative:async selector=>calls.push(selector)};
+ const reads=[0,true,true,true,true,'짧은 영상 제목'],calls=[],bridge={frame:async()=>true,evaluate:async()=>reads.shift(),click:async selector=>{assert.notEqual(selector,'.nvu_btn_submit');calls.push(selector);},clickVerifiedButton:async selector=>calls.push(selector),upload:async(files,trigger)=>{assert.deepEqual(files,['/original.mp4']);await trigger();},text:async(selector,text)=>calls.push([selector,text]),key:async key=>calls.push(key)};
  const naver=new Naver({get:()=>({id:'v',projectId:'p',role:'video',status:'ready',filename:'v.mp4',originalPath:'original.mp4'})},{resolve:()=>'/original.mp4'},bridge);
- naver.setVideoTags=async tags=>assert.deepEqual(tags,['게시글태그']);naver.verifyVideoTags=async tags=>assert.deepEqual(tags,['게시글태그']);
- await naver.insertVideo({kind:'video',assetIds:['v'],text:'짧은 영상 제목'},'p',['게시글태그']);assert(calls.includes('done'));assert.equal(calls.filter(c=>c==='.nvu_btn_submit').length,2);assert.equal(calls.filter(c=>c==='End').length,2);assert(!calls.includes('button'));assert(calls.some(c=>Array.isArray(c)&&c[0].includes('description')&&c[1]==='짧은 영상 제목'));
+ naver.setVideoTags=async tags=>assert.deepEqual(tags,['게시글태그']);naver.verifyVideoTags=async tags=>assert.deepEqual(tags,['게시글태그']);naver.waitVideoUpload=async()=>{};
+ await naver.insertVideo({kind:'video',assetIds:['v'],text:'짧은 영상 제목'},'p',['게시글태그']);assert.equal(calls.filter(c=>c==='.nvu_btn_submit.nvu_btn_type2').length,1);assert.equal(calls.filter(c=>c==='End').length,2);assert(!calls.includes('button'));assert(calls.some(c=>Array.isArray(c)&&c[0].includes('description')&&c[1]==='짧은 영상 제목'));
 });

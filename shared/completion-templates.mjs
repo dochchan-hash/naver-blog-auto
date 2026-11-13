@@ -1,8 +1,20 @@
+export function completionSourceIds(project){return project.postType==='completion'?[...new Set((project.completionTemplates||[]).flatMap(s=>[...s.photoIds,...Object.values(s.edits||{}).map(e=>e.photoId)]).filter(Boolean))]:[];}
 export function completionText(slot,element){
   if(slot.edits?.[element.id]?.text!==undefined)return slot.edits[element.id].text;
   if(slot.position==='space'&&element.binding==='space')return slot.space||element.text||'';
   if(slot.position==='space'&&element.binding==='point')return slot.text||element.text||'';
   return element.text||'';
+}
+export function completionPointTemplates(project,assets){
+  if(project.postType!=='completion')return [];
+  return (project.completionTemplates||[]).filter(s=>s.enabled!==false&&s.position==='space'&&s.templateId).flatMap(slot=>{
+    const template=assets.find(a=>a.id===slot.templateId),layout=template?.layouts?.find(l=>l.id===(slot.layoutId||template.layouts[0]?.id));
+    if(!layout)return [];
+    const lines=layout.elements.filter(e=>e.kind==='text'&&e.binding==='point'&&slot.edits?.[e.id]?.visible!==false).map(e=>completionText(slot,e)).join('\n').split(/\r?\n/).map(s=>s.trim()).filter(Boolean),numbered=lines.some(s=>/^\d+[.)．]\s*\S/.test(s)),points=[];
+    for(const line of lines){const match=line.match(/^(\d+)[.)．]\s*(.+)$/);if(match)points.push({number:Number(match[1]),title:match[2].trim()});else if(numbered&&points.length)points.at(-1).title+=' '+line;else if(!numbered)points.push({number:points.length+1,title:line});}
+    const output=assets.find(a=>a.templateSlotId===slot.id&&a.status==='ready'&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(slot,assets));
+    return [{id:slot.id,space:slot.space,points,outputId:output?.id}];
+  });
 }
 export function completionRows(layout){
   if(layout.position!=='beforeAfter')return [];

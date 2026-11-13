@@ -14,7 +14,7 @@ export const COMPLETION_FORMAT={
   heading:{fontFamily:'applesystem',fontSize:19,fontWeight:700,color:'#000000',backgroundColor:'transparent',align:'left'},
   quote:{fontFamily:'applesystem',fontSize:19,fontWeight:700,color:'#000000',backgroundColor:'transparent',align:'center'},
   headingKind:'quote',headingQuoteVariant:'quotation_line',quoteVariant:'quotation_corner',dividerVariant:'line5',introQuote:false,dividerAfterOutro:false,
-  spaceOrder:['현관','복도','거실','주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','작은방3','공용욕실','알파룸','베란다'],
+  spaceOrder:['현관','복도','거실','거실베란다','주방','보조주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','작은방3','공용욕실','알파룸','베란다','2층','기타'],
   textStyles:{point:[{fontFamily:'nanumbarungothic',fontSize:16,fontWeight:700,color:'#ff5f45',backgroundColor:'transparent',align:'left'}],contact:[{fontFamily:'nanumbarungothic',fontSize:19,fontWeight:700,color:'#ff5f45',backgroundColor:'transparent',align:'center'}]}
 };
 
@@ -22,7 +22,7 @@ export const COMPLETION_FORMAT={
 // paragraph's computed font can differ from the font applied to its spans.
 export function readReferenceFormat({withEvidence=false,postType}={}){
   const root=document.querySelector('.se-main-container');if(!root)return null;
-  const spaces=['현관','거실','주방','안방','안방욕실','작은방1','작은방2','작은방3','공용욕실','작은방','욕실','복도','알파룸','드레스룸','파우더룸','주방베란다','안방베란다','베란다','기타'];
+  const spaces=['현관','거실','주방','보조주방','안방','안방욕실','작은방1','작은방2','작은방3','공용욕실','작은방','욕실','복도','알파룸','드레스룸','파우더룸','주방베란다','안방베란다','베란다','거실베란다','2층','기타'];
   const paragraphs=[...root.querySelectorAll('.se-component.se-text .se-text-paragraph,.se-component.se-quotation .se-text-paragraph')];
   const text=p=>p.textContent.replace(/[\u200B\uFEFF]/g,'').trim();
   const css=p=>{let node=[...p.querySelectorAll('span')].filter(e=>e.textContent.trim()).sort((a,b)=>b.textContent.length-a.textContent.length)[0]||p;const bold=[...node.querySelectorAll('b,strong')].find(e=>e.textContent.trim()===node.textContent.trim());if(bold)node=bold;const s=getComputedStyle(node),ps=getComputedStyle(p);const bg=s.backgroundColor==='rgba(0, 0, 0, 0)'&&node.parentElement?getComputedStyle(node.parentElement).backgroundColor:s.backgroundColor;return {fontFamily:(node.className+' '+(node.closest('[class*="se-ff-"]')?.className||'')).match(/se-ff-([a-z][a-z0-9]*)/)?.[1]||s.fontFamily.split(',')[0].replace(/^['"]?se-/, '').replace(/[^a-z0-9]/gi,'').toLowerCase()||'nanumbarungothic',fontSize:parseFloat(s.fontSize),fontWeight:Number(s.fontWeight)||400,color:s.color,backgroundColor:bg==='rgba(0, 0, 0, 0)'?'transparent':bg,align:['left','center','right','justify'].includes(ps.textAlign)?ps.textAlign:'center'};};
@@ -97,6 +97,15 @@ export function applyReferenceFormat(project,profile){
   return {...project,blocks:spaceHeadingFirst(blocks),formatProfile:profile,draftStatus:'edited'};
 }
 export function referenceSpaceOrder(profile){return [...new Set(profile.spaceOrder.flatMap(s=>s==='작은방'?['작은방1','작은방2']:s==='욕실'?['공용욕실']:s))];}
+export function sectionSpaceOrder(profile,spaces=[]){
+  let order=[...new Set([...referenceSpaceOrder(profile),...spaces])];
+  for(const [parent,children]of Object.entries({거실:['거실베란다'],주방:['보조주방','주방베란다'],안방:['파우더룸','드레스룸','안방베란다','안방욕실']})){
+    if(!order.includes(parent))continue;
+    const adjoining=children.filter(s=>order.includes(s));
+    order=order.filter(s=>!adjoining.includes(s));order.splice(order.indexOf(parent)+1,0,...adjoining);
+  }
+  return [...order.filter(s=>s!=='공용욕실'),...order.filter(s=>s==='공용욕실')];
+}
 export function referenceStructure(project,profile){
   if(project.postType==='completion')return [...project.blocks];
   let blocks=spaceHeadingFirst(project.blocks);
@@ -104,7 +113,7 @@ export function referenceStructure(project,profile){
   const starts=blocks.flatMap((b,i)=>isHeading(b)?[i]:[]);
   if(!starts.length)return blocks;
   const end=blocks.findIndex((b,i)=>i>starts.at(-1)&&b.kind==='divider');
-  const finish=end<0?blocks.length:end,order=referenceSpaceOrder(profile);
+  const finish=end<0?blocks.length:end,order=sectionSpaceOrder(profile,starts.map(i=>blocks[i].space));
   const sections=starts.map((start,i)=>blocks.slice(start,starts[i+1]??finish));
   sections.sort((a,b)=>(order.indexOf(a[0].space)<0?100:order.indexOf(a[0].space))-(order.indexOf(b[0].space)<0?100:order.indexOf(b[0].space)));
   let prefix=blocks.slice(0,starts[0]);

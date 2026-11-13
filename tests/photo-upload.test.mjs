@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import {photoUploadBlocks} from '../shared/photo-layout.mjs';
 import {Naver,editorMatches} from '../server/naver.mjs';
 import {editorFormatIssue} from '../shared/format.mjs';
@@ -30,10 +31,23 @@ test('분할한 사진 묶음으로 서식과 완료를 검사하며 10장 이�
  const html=exportHtml({...project,tags:[]},ids.map(id=>({id,space:'거실',originalUrl:'/photo/'+id})));assert.deepEqual([...html.matchAll(/<div style="display:flex[^>]*>(.*?)<\/div>/g)].map(m=>[...m[1].matchAll(/<img /g)].length),[10,10,1]);
 });
 
-test('분할 묶음 뒤 공사범위의 대표사진 검증도 실제 편집기 순번을 사용한다',async()=>{
- const project={postType:'case',templatePhotoId:'raw',blocks:[{id:'all',kind:'photos',space:'거실',assetIds:Array.from({length:21},(_,i)=>'p'+i)},{id:'plan',kind:'photos',space:'도면',assetIds:['raw','scope']}]},assets=[{id:'scope',templateOutput:'scope'}];let checkedIndex;
- const bridge={evaluate:async(fn,index)=>{checkedIndex=index;return {collage:true,ratios:[1,1],representative:[true,false]};}};
- await new Naver({}, {},bridge).verifyPlanCollage(project,assets);assert.equal(checkedIndex,3);
+test('네이버에서 공사범위와 표지 원본을 1:1로 묶고 왼쪽 사진을 대표로 지정한 뒤 공간 사진을 올린다',async()=>{
+ const ids=Array.from({length:20},(_,i)=>'p'+i),project={id:'p',postType:'case',templatePhotoId:'raw',blocks:[{id:'cover',kind:'photos',space:'표지',assetIds:['cover']},{id:'plan',kind:'photos',space:'도면',assetIds:['scope']},{id:'all',kind:'photos',space:'거실',assetIds:['raw',...ids]}]},assets=['cover','raw','scope',...ids].map(id=>({id,projectId:'p',role:id==='raw'?'template-photo':'photo',templateOutput:id==='scope'?'scope':undefined,status:'ready'}));let count=0;const uploads=[];
+ const bridge={appendParagraph:async()=>{},evaluate:async fn=>fn.toString().includes('se-l-')||fn.toString().includes('input[type=')?true:count,upload:async files=>{uploads.push(files);count+=files.length;},click:async()=>false};
+ const naver=new Naver({assets:()=>assets,get:(kind,id)=>assets.find(a=>a.id===id)},{originalForUpload:async a=>a.id,planPhotoForUpload:async a=>`square-${a.id}`},bridge);
+ const marked=[];naver.verifyPlanCollage=async(...args)=>marked.push(args);
+ await naver.writeBlocks(project,()=>{});
+ assert.deepEqual(uploads,[['cover'],['square-raw','square-scope'],ids.slice(0,10),ids.slice(10)]);assert.deepEqual(marked,[[1,true]]);
+});
+
+test('왼쪽 대표사진 버튼이 뒤늦게 나타나도 활성화하고 클릭한 뒤 실제 선택 상태를 확인한다',async()=>{
+ let representative=1,activated=false;
+ const calls=[];
+ const modules=[0,1].map(i=>({dataset:{},querySelector:selector=>selector==='img'?{naturalWidth:300,naturalHeight:200,getBoundingClientRect:()=>({width:100,height:100})}:i===0&&!activated?null:{classList:{contains:()=>representative===i},getAttribute:()=>null,matches:()=>false,click:()=>assert.fail('실제 버튼 클릭 경로를 사용해야 합니다.')}}));
+ const group={querySelectorAll:()=>modules,matches:selector=>selector==='.se-imageGroup.se-l-collage'};
+ const bridge={evaluate:async(fn,arg)=>vm.runInNewContext(`(${fn.toString()})(arg)`,{arg,document:{querySelectorAll:()=>[{},group]}}),clickVerifiedButton:async selector=>{assert.equal(modules[0].dataset.lemonPlanPhoto,'true');calls.push(selector);if(selector.endsWith(' .se-image-resource'))activated=true;else representative=0;}};
+ const result=await new Naver({}, {},bridge).verifyPlanCollage(1,true);
+ assert.deepEqual(calls,['[data-lemon-plan-photo] .se-image-resource','[data-lemon-plan-photo] button.se-set-rep-image-button']);assert.equal(result.square,true);assert.deepEqual(Array.from(result.representative),[true,false]);
 });
 
 test('빠진 원본은 업로드 전에 거부하고 중간 업로드 실패 시 다음 묶음을 진행하지 않는다',async()=>{

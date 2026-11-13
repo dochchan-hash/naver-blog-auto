@@ -11,7 +11,7 @@ const source=ts.transpileModule(await fs.readFile('src/App.tsx','utf8'),{compile
 function appHarness(api,options={}){
   const project=options.project||{...newProject('draft'),phase:'write',blocks:[{id:'intro',kind:'text',text:'소개'},{id:'heading',kind:'quote',space:'현관',text:'현관'},{id:'body',kind:'text',space:'현관',text:'직접 수정할 설명'}]},data={projects:[project],assets:[],jobs:[],auth:{connected:true},browser:{},settings:{},style:{},...options.data};
   const callbacks=[],refs=[],states=[];let stateIndex=0;
-  const hooks={useCallback:fn=>(callbacks.push(fn),fn),useEffect:()=>{},useRef:value=>{const ref={current:refs.length===1?project:value};refs.push(ref);return ref;},useState:initial=>{const i=stateIndex++,value=i===0?data:i===1?project:initial;states[i]=value;return [value,next=>states[i]=typeof next==='function'?next(states[i]):next];}};
+  const hooks={useCallback:fn=>(callbacks.push(fn),fn),useMemo:fn=>fn(),useEffect:()=>{},useRef:value=>{const ref={current:refs.length===1?project:value};refs.push(ref);return ref;},useState:initial=>{const i=stateIndex++,value=i===0?data:i===1?project:initial;states[i]=value;return [value,next=>states[i]=typeof next==='function'?next(states[i]):next];}};
   const components=new Proxy({},{get:(_,name)=>String(name)}),module={exports:{}};
   vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='./api'?{api}:name==='../shared/format.mjs'?{}:name==='../shared/domain.mjs'?domain:name==='../shared/sources.mjs'?{}:components,localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout,clearTimeout,Date,console});
   const tree=module.exports.default();
@@ -34,6 +34,16 @@ test('저장 전 시작한 늦은 상태 조회가 수정한 원고를 이전 �
 test('저장 실패 때 이전 원고로 네이버 작업을 진행하지 않고 수정 내용과 오류를 보존한다',async()=>{
   let started=false;const app=appHarness({saveProject:async()=>{throw Error('저장 연결 실패');},task:async()=>{started=true;}});app.update({title:'반드시 보존할 수정'});await app.task('prepare');
   assert.equal(started,false);assert.equal(app.current.current.title,'반드시 보존할 수정');assert(app.states.includes('저장 연결 실패'));assert.equal(app.states.at(-1),false);
+});
+
+test('편집 직후 같은 마감 메뉴를 눌러도 보관함의 이전 템플릿 값으로 되돌리지 않는다',async()=>{
+  const project={...newProject('completion','completion'),phase:'write'},pending=deferred(),saved=[];
+  const app=appHarness({saveProject:p=>(saved.push(p),pending.promise)},{project});
+  function find(node){if(!node||typeof node!=='object')return null;if(node.type==='nav'&&node.props['aria-label']==='게시글 종류')return node;for(const child of [node.props?.children].flat(Infinity)){const match=find(child);if(match)return match;}return null;}
+  const slots=project.completionTemplates.map((s,i)=>i? s:{...s,text:'버튼을 누르지 않은 최신 편집'});
+  app.update({completionTemplates:slots});find(app.tree).props.children[2].props.onClick();
+  pending.resolve({...saved[0],revision:1});await tick();
+  assert.equal(app.current.current.revision,1);assert.equal(app.current.current.completionTemplates[0].text,'버튼을 누르지 않은 최신 편집');assert.equal(project.completionTemplates[0].text,'');
 });
 test('같은 프로그램의 왼쪽 메뉴에서 추천글과 시공사례를 전환하며 수정 원고를 먼저 저장한다',async()=>{
   const recommendation=newProject('recommendation'),portfolio=newProject('case','case'),saved=[];

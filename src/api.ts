@@ -1,6 +1,7 @@
 import type {Bootstrap,Project,Role,Asset,Settings,Style,PostType,Job,ComplexDetails} from '../shared/model';
 let csrf='';
 let bootstrapRequest:Promise<Bootstrap>|null=null;
+export type CoverFrame={width:number;height:number;photo:{x:number;y:number;width:number;height:number}};
 async function request<T>(path:string,options:RequestInit={}):Promise<T>{
   const response=await fetch(`/api${path}`,{...options,credentials:'same-origin',signal:AbortSignal.timeout(300000),headers:{...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),'X-Lemon-CSRF':csrf,...options.headers}});
   if(!response.ok){const body=await response.json().catch(()=>({error:'작업을 완료하지 못했습니다.'}));throw new Error(body.error);}
@@ -11,6 +12,7 @@ export const api={
   deleteProject:(id:string)=>request<{ok:boolean}>(`/projects/${id}`,{method:'DELETE'}),
   createProject:(postType:PostType='recommendation')=>request<Project>('/projects',{method:'POST',body:JSON.stringify({postType})}),
   saveProject:(p:Project)=>request<Project>(`/projects/${p.id}`,{method:'PUT',body:JSON.stringify(p)}),
+  coverFrame:(id:string)=>request<CoverFrame>(`/assets/${encodeURIComponent(id)}/cover-frame`),
   upload:(id:string,role:Role,file:File,onProgress:(value:number)=>void,classify=true)=>new Promise<Asset>((resolve,reject)=>{
     const xhr=new XMLHttpRequest();xhr.open('POST',`/api/projects/${id}/assets?role=${role}&classify=${classify}`);xhr.setRequestHeader('X-Lemon-CSRF',csrf);
     xhr.timeout=300000;xhr.ontimeout=()=>reject(new Error('파일 전송 시간이 초과되었습니다. 다시 첨부해 주세요.'));

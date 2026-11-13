@@ -51,7 +51,7 @@ test('세 콘텐츠 모두 MP4·MOV를 원본으로 첨부하고 다른 원고·
 });
 
 test('영상 태그를 각각 확정하고 정보창을 다시 열어 게시글 태그와 정확히 대조한다',async()=>{
- const calls=[],state={tags:[],input:''},bridge={click:async selector=>calls.push(selector),text:async(_,tag)=>{state.input=tag;},key:async key=>{if(key==='Return'){state.tags.push(state.input);state.input='';}},evaluate:async()=>{},clickNative:async selector=>calls.push(selector),waitFor:async()=>{}};
+ const calls=[],state={tags:[],input:'',open:false},bridge={frame:async()=>state.open?{}:null,click:async selector=>{calls.push(selector);if(selector==='.nvu_btn_close')state.open=false;},text:async(_,tag)=>{state.input=tag;},key:async key=>{if(key==='Return'){state.tags.push(state.input);state.input='';}},evaluate:async()=>{},clickNative:async selector=>{calls.push(selector);if(selector.includes('se-video-meta-toolbar-button'))state.open=true;},waitFor:async()=>{}};
  const naver=new Naver({}, {},bridge);naver.videoTags=async()=>structuredClone(state);await naver.setVideoTags(['#인테리어','레몬 하우스','인테리어']);assert.deepEqual(state.tags,['인테리어','레몬하우스']);await naver.verifyVideoTags(['레몬하우스','인테리어']);assert(calls.includes('.nvu_btn_close'));
  state.tags=['인테리어'];await assert.rejects(naver.verifyVideoTags(['레몬하우스','인테리어']),/저장된 영상 태그/);await assert.rejects(naver.setVideoTags(['가'.repeat(21)]),/20자/);
 });

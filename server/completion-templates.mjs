@@ -98,7 +98,7 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
     const sprite=await loadImage(resolve(`${template.id}/${element.file}`)),x=edit.x??element.x,y=edit.y??element.y,scale=edit.scale||1;
     ctx.save();ctx.globalAlpha=element.opacity;
     if(element.kind==='photo'||edit.photoId){
-      const id=edit.photoId||photos.find(p=>p.element.id===element.id)?.id,photo=assets.find(a=>a.id===id&&a.projectId===project.id&&a.role==='photo'&&!a.excluded&&!a.templateOutput&&a.status==='ready');
+      const id=edit.photoId||photos.find(p=>p.element.id===element.id)?.id,photo=assets.find(a=>a.id===id&&a.projectId===project.id&&['photo','template-photo'].includes(a.role)&&!a.excluded&&!a.templateOutput&&a.status==='ready');
       const part=createCanvas(element.width,element.height),c=part.getContext('2d');
       if(photo){const image=await loadImage(resolve(photo.originalPath)),p=completionPhotoPlacement(edit,element,image);c.drawImage(image,p.x,p.y,p.width,p.height);}
       else{missing.push(element.name);c.fillStyle='#eef0e9';c.fillRect(0,0,part.width,part.height);c.font='24px "Malgun Gothic",sans-serif';c.fillStyle='#61715d';c.fillText('사진을 선택하세요',18,part.height/2);}

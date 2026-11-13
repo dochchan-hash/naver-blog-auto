@@ -5,11 +5,22 @@ import os from 'node:os';
 import path from 'node:path';
 import {Store} from '../server/store.mjs';
 import {AI} from '../server/ai.mjs';
-import {newProject,photoGroups,draftWarnings} from '../shared/domain.mjs';
+import {newProject,photoGroups,draftWarnings,moveDraftBlocks} from '../shared/domain.mjs';
 import {photoDropPatches} from '../shared/photo-layout.mjs';
 import {sourceSignature,sourceReviewCurrent,resolvedSourceEvidence,draftSourceSignature} from '../shared/sources.mjs';
 const photos=()=>['a','b','c','d'].map((id,order)=>({id,projectId:'p',role:'photo',space:'거실',group:'',order,excluded:false,hash:id,status:'ready',analysis:{description:'밝은 거실'}}));
 const apply=(assets,patches)=>assets.map(a=>({...a,...patches.find(p=>p.id===a.id)}));
+test('원고 드래그는 선택한 여러 종류의 항목을 원래 순서와 내용 그대로 함께 이동한다',()=>{
+  const blocks=['heading','photos','text','quote','divider','map','video'].map((kind,i)=>({id:String(i),kind,text:'원고 '+i,assetIds:kind==='photos'?['photo']:undefined}));
+  const original=structuredClone(blocks),ids=items=>items.map(b=>b.id);
+  assert.deepEqual(ids(moveDraftBlocks(blocks,'1','6','after',['3','1'])),['0','2','4','5','6','1','3']);
+  assert.deepEqual(ids(moveDraftBlocks(blocks,'6','0','before',['6','4'])),['4','6','0','1','2','3','5']);
+  assert.deepEqual(ids(moveDraftBlocks(blocks,'2','0','before',['1','3'])),['2','0','1','3','4','5','6']);
+  assert.deepEqual(blocks,original);
+  const moved=moveDraftBlocks(blocks,'1','6','after',['1','3']);
+  for(const b of blocks)assert.equal(moved.find(x=>x.id===b.id),b);
+  for(const [source,target,side,selected]of [['1','3','after',['1','3']],['0','0','before',[]],['0','1','before',[]],['unknown','0','after',[]],['0','unknown','after',[]],['0','1','invalid',[]]])assert.equal(moveDraftBlocks(blocks,source,target,side,selected),blocks);
+});
 function fixture(){
   const p={...newProject('p'),sourceText:'거실 바닥은 폴리싱 타일로 마감했습니다. 주방에는 간접조명을 설치했습니다.',original:{name:'원본',region:'창원',type:'84A'},target:{name:'추천',region:'창원',type:'84B'},facts:[{id:'floor',space:'거실',item:'강마루 바닥 시공',sourceAssetId:'doc',sourceLabel:'공사범위.jpg',uncertain:false,confirmed:false}],keywords:[]};
   const assets=[{id:'doc',role:'construction',hash:'document',projectId:'p',status:'ready'},...photos()];
@@ -68,7 +79,7 @@ test('원문 근거 없는 카페 추출은 확인 대상으로 남기고 재분
 test('실제 생성 경로는 제외한 자재를 제거하고 파일·카페·사진의 나머지 정보를 함께 사용한다',async t=>{
   const store=await context(t),{p,assets}=fixture();p.sourceReview.conflicts[0].decision='exclude';store.put('project',p.id,p);assets[0].analysis={facts:p.facts};assets.forEach(a=>store.put('asset',a.id,a));store.put('style','main',{rules:'추천글 작성',status:'analyzed',referenceUrls:[]});
   const ai=new AI(store,{}, {},{});let received;
-  ai.call=async(_,content)=>{received=JSON.parse(content[0].text);return {title:'추천 원고',intro:'안녕하세요',sections:[{space:'거실',text:'밝은 분위기를 추천합니다.'}],outro:'문의하세요',tags:[],warnings:[]};};
+  ai.call=async(instructions,content)=>{const input=JSON.parse(content[0].text);if(instructions.includes('공간별 시공 분류')){assert(!JSON.stringify(input).includes('강마루'));assert(!JSON.stringify(input).includes('폴리싱'));return {items:[{space:'공통',item:'주방 간접조명',sourceIds:['fact:0'],photoIds:[]}],warnings:[]};}if(instructions.includes('본문 시공 대조'))return {checks:[{workId:'work-1',blockId:input.blocks.find(b=>b.text.includes('주방 간접조명')).id,quote:'주방 간접조명을 추천합니다.'}],issues:[]};received=input;return {title:'추천 원고',intro:'안녕하세요. 주방 간접조명을 추천합니다.',sections:[{space:'거실',text:'밝은 분위기를 추천합니다.'}],outro:'문의하세요',tags:[],warnings:[]};};
   const result=await ai.generate(p.id,()=>{});assert.match(received.cafeSource,/주방에는 간접조명/);assert(!JSON.stringify(received).includes('강마루'));assert(!JSON.stringify(received).includes('폴리싱'));assert(JSON.stringify(received).includes('주방 간접조명'));assert.equal(received.photos.length,4);
   assert.equal(result.project.draftSourceSignature,draftSourceSignature(result.project,store.assets(p.id)));assert.deepEqual(result.project.blocks.filter(b=>b.kind==='photos').map(b=>b.assetIds),[['a'],['b'],['c'],['d']]);
 });

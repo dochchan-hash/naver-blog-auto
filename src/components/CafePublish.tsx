@@ -8,7 +8,7 @@ export function CafePublish({project,assets,update,save,notify,task,busy,availab
     <section className="card"><Field label="대상 카페"><input type="url" value={project.cafeTargetUrl||''} onChange={e=>update({cafeTargetUrl:e.target.value})}/></Field><Field label="대상 게시판"><input type="url" value={project.cafeBoardUrl||''} onChange={e=>update({cafeBoardUrl:e.target.value})}/></Field>
       {warnings.length?<Notice tone="warning"><ul>{warnings.map(w=><li key={w}>{w}</li>)}</ul></Notice>:<Notice tone="success">원고의 기본 검사를 통과했습니다.</Notice>}
       <Button className="secondary full" onClick={download} disabled={!project.title||!project.blocks.length}>마감 원고 HTML 내려받기</Button>
-      <Button className="primary full" busy={busy} disabled={!available||!project.title||!project.blocks.length||!project.cafeTargetUrl} onClick={()=>task('prepare')}>카페 편집기에 준비하고 확인</Button>
-      <Notice>제목·본문·사진·지도·인용구·구분선과 첨부한 동영상을 카페에 입력하고 순서와 서식을 확인합니다. 최종 등록은 직접 검토한 뒤 진행하세요. PSD 문구와 사진은 사진 단계에서 수정하고 JPG로 적용합니다.</Notice>
+      <Button className="primary full" busy={busy} disabled={!available||!project.title||!project.blocks.length||!project.cafeTargetUrl} onClick={()=>task('prepare')}>카페에 입력하고 임시저장</Button>
+      <Notice>제목·본문·사진·지도·인용구·구분선과 동영상을 카페에 입력합니다. 동영상 업로드 완료 후 마지막 사진과 태그를 넣고 임시저장을 확인합니다. 최종 등록은 직접 검토한 뒤 진행하세요. PSD 문구와 사진은 사진 단계에서 수정하고 JPG로 적용합니다.</Notice>
     </section></>;
 }

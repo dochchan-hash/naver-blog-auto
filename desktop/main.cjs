@@ -2,6 +2,7 @@ const {app,BrowserWindow,shell,safeStorage,dialog}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {BrowserBridge}=require('./browser.cjs');
 const {jobNotifications}=require('./notifications.cjs');
+const {loadStudio}=require('./startup.cjs');
 const projectRoot=path.resolve(__dirname,'..');
 if(process.env.LEMONHOUSE_DATA_DIR)app.setPath('userData',path.join(process.env.LEMONHOUSE_DATA_DIR,'desktop'));
 else if(!app.isPackaged)app.setPath('userData',path.join(projectRoot,'.local','desktop'));
@@ -25,8 +26,8 @@ if(single)app.whenReady().then(async()=>{
   mainWindow=new BrowserWindow({width:1480,height:950,minWidth:980,minHeight:680,title:'레몬하우스 · 블로그 스튜디오',backgroundColor:'#f7f8f5',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
   mainWindow.webContents.setWindowOpenHandler(({url})=>{if(/^https:\/\//.test(url))shell.openExternal(url);return {action:'deny'};});
   mainWindow.webContents.on('will-navigate',(event,url)=>{if(!url.startsWith(runtime.url+'/'))event.preventDefault();});
-  await mainWindow.loadURL(runtime.url+'/');
   mainWindow.on('closed',()=>app.quit());
+  await loadStudio(mainWindow,runtime.url+'/');
   app.on('activate',()=>{mainWindow?.show();});
 }).catch(error=>{dialog.showErrorBox('프로그램 실행 확인 필요',error.message);app.quit();});
 app.on('window-all-closed',()=>app.quit());

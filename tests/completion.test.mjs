@@ -9,6 +9,7 @@ import {createServer} from '../server/index.mjs';
 import {localApi} from '../scripts/local-api.mjs';
 import {COMPLETION_SPACES,draftWarnings,exportHtml,missingSpaceDescriptions,postLabel,postSite,postSpaces,photoLayoutBlocks} from '../shared/domain.mjs';
 import {COMPLETION_FORMAT,blockTextStyles} from '../shared/format.mjs';
+import {draftSourceSignature} from '../shared/sources.mjs';
 
 async function fixture(t){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-cafe-completion-')),runtime=await createServer({dataDir:dir,port:0});
@@ -42,12 +43,36 @@ test('카페 참고글 두 편의 서식을 마감 스타일에만 새로 적용
   ai.browser.readPosts=async urls=>{assert.equal(urls.length,2);assert(urls.every(u=>u.startsWith('https://cafe.naver.com/')));read++;return urls.map(url=>({url,title:'카페 마감 예시',text:'확인한 시공내용',formatProfile:COMPLETION_FORMAT}));};
   await ai.refreshFormat(()=>{},'completion');assert.equal(read,1);assert.equal(store.get('style','completion').formatEvidence.length,2);assert.equal(store.get('style','completion').formatEvidence[0].text,'확인한 시공내용');assert.deepEqual(store.get('style','completion').formatProfile,COMPLETION_FORMAT);assert.deepEqual(store.get('style','main'),before);
 });
+
+test('템플릿 사진은 제작용으로 보관하고 일반 사진·기존 본문에서 분리하며 같은 원본의 별도 현장 사진은 유지한다',async t=>{
+  const {request,store,assets}=await fixture(t);let p=await request('/projects','POST',{postType:'completion'});
+  const canvas=createCanvas(80,80);canvas.getContext('2d').fillRect(0,0,80,80);const bytes=canvas.toBuffer('image/jpeg');
+  const upload=async(role,project=p)=>{const form=new FormData();form.append('file',new Blob([bytes]),'현관.jpg');return request(`/projects/${project.id}/assets?role=${role}&classify=false`,'POST',form);};
+  const source=await upload('template-photo'),normal=await upload('photo'),legacy=await upload('photo');await assets.queue;
+  assert.equal(source.role,'template-photo');assert.equal(source.hash,normal.hash);
+  assert.equal(store.assets(p.id).filter(a=>a.role==='photo').length,2);
+  const rec=store.createProject();await assert.rejects(upload('template-photo',rec),/템플릿용 사진은 시공사례나 마감/);
+  await assert.rejects(request(`/projects/${p.id}`,'PUT',{...p,blocks:[{id:'raw',kind:'photos',assetIds:[source.id]}]}),/다른 원고의 사진/);
+  const templates=p.completionTemplates.map((s,i)=>i?s:{...s,photoIds:[source.id,legacy.id]});
+  p=await request(`/projects/${p.id}`,'PUT',{...p,draftSourceSignature:draftSourceSignature(p,store.assets(p.id)),completionTemplates:templates,blocks:[{id:'intro',kind:'text',text:'직접 작성한 인사말'},{id:'group',kind:'photos',space:'현관',assetIds:[legacy.id,normal.id,source.id]},{id:'source-only',kind:'photos',assetIds:[source.id]},{id:'end',kind:'text',text:'마무리'}]});
+  assert.deepEqual(p.blocks.map(b=>b.id),['intro','group','end']);assert.deepEqual(p.blocks[1].assetIds,[normal.id]);assert.equal(p.blocks[0].text,'직접 작성한 인사말');
+  assert.equal(store.asset(legacy.id).role,'template-photo');assert.equal(store.asset(normal.id).role,'photo');
+  assert.equal(p.draftSourceSignature,draftSourceSignature(p,store.assets(p.id)));
+  assert.deepEqual(store.assets(p.id).filter(a=>a.role==='photo').map(a=>a.id),[normal.id]);
+  assert.deepEqual(await fs.readFile(assets.resolve(source.originalPath)),bytes);
+  assert.deepEqual(await fs.readFile(assets.resolve(legacy.originalPath)),bytes);
+  assert(!photoLayoutBlocks(p,store.assets(p.id)).filter(b=>b.kind==='photos').flatMap(b=>b.assetIds).some(id=>id===source.id||id===legacy.id));
+  const pending=await upload('photo');await assets.queue;
+  await assert.rejects(request(`/projects/${p.id}`,'PUT',{...p,revision:p.revision-1,completionTemplates:templates.map((s,i)=>i?s:{...s,photoIds:[pending.id]})}),/다른 화면/);
+  assert.equal(store.asset(pending.id).role,'photo');
+  p=await request(`/projects/${p.id}`,'PUT',{...p,completionTemplates:[]});assert.equal(store.asset(source.id).role,'template-photo');assert.equal(store.asset(legacy.id).role,'template-photo');
+});
 test('88장 마감 원고는 특수 이미지·모든 공간·번호별 포인트·왼쪽 정렬을 끝까지 유지한다',async t=>{
   const {store,ai}=await fixture(t),p=store.createProject('completion');store.updateProject(p.id,{original:{...p.original,name:'테스트 시공 현장'},keywords:[],manualWork:'거실 천장 간접조명 시공',completionTemplates:p.completionTemplates.map(s=>s.position==='space'?{...s,templateId:'point-psd'}:s)});
   store.put('style','completion',{name:'마감',referenceUrls:[],rules:'카페 마감',status:'edited',formatProfile:COMPLETION_FORMAT});
   const photoSpaces=['표지','공사범위','시공전후',...COMPLETION_SPACES,'마무리'];
   for(let i=0;i<88;i++){const space=i<photoSpaces.length?photoSpaces[i]:COMPLETION_SPACES[i%COMPLETION_SPACES.length];store.put('asset','photo-'+i,{id:'photo-'+i,projectId:p.id,role:'photo',space,spaceManual:true,order:i,status:'ready',excluded:false,hash:String(i),analysis:{description:'확인한 현장 사진'}});}
-  ai.analyzeMaterials=async()=>{};ai.call=async(instructions,content)=>{assert.match(instructions,/네이버 카페 마감/);assert(!instructions.includes('추천드립니다, ~해보세요')); assert.equal(JSON.parse(content[0].text).original.name,'테스트 시공 현장');return {title:'테스트 마감',intro:'완료된 현장을 소개합니다.',sections:COMPLETION_SPACES.map(space=>({space,text:'밝은 마감이 공간에 편안함을 더합니다.',points:space==='거실'?[{title:'간접조명',text:'천장 간접조명으로 은은한 빛을 더했습니다.'}]:[]})),outro:'공간 소개를 마칩니다.\n감사합니다.',tags:['마감'],warnings:[]};};
+  ai.analyzeMaterials=async()=>{};ai.call=async(instructions,content)=>{const input=JSON.parse(content[0].text);if(instructions.includes('공간별 시공 분류'))return {items:[{space:'거실',item:'천장 간접조명',sourceIds:['manual'],photoIds:[]}],warnings:[]};if(instructions.includes('본문 시공 대조'))return {checks:[{workId:'work-1',blockId:input.blocks.find(b=>b.text.includes('천장 간접조명')).id,quote:'천장 간접조명으로 은은한 빛을 더했습니다.'}],issues:[]};assert.match(instructions,/네이버 카페 마감/);assert(!instructions.includes('추천드립니다, ~해보세요')); assert.equal(input.original.name,'테스트 시공 현장');return {title:'테스트 마감',intro:'완료된 현장을 소개합니다.',sections:COMPLETION_SPACES.map(space=>({space,text:'밝은 마감이 공간에 편안함을 더합니다.',points:space==='거실'?[{title:'간접조명',text:'천장 간접조명으로 은은한 빛을 더했습니다.'}]:[]})),outro:'공간 소개를 마칩니다.\n감사합니다.',tags:['마감'],warnings:[]};};
   const {project}=await ai.generate(p.id,()=>{}),photos=project.blocks.filter(b=>b.kind==='photos').flatMap(b=>b.assetIds);
   assert.equal(photos.length,88);assert.equal(new Set(photos).size,88);assert.deepEqual(missingSpaceDescriptions(project,store.assets(p.id)),[]);assert(!draftWarnings(project,store.assets(p.id)).some(w=>/추천 현장|사진 순서/.test(w)));
   assert.equal(project.blocks.find(b=>b.space==='거실'&&b.kind==='quote').variant,'quotation_line');assert.equal(project.blocks.filter(b=>b.kind==='text'&&b.formatRole==='point').length,1);assert.equal(blockTextStyles({kind:'text',formatRole:'point'},COMPLETION_FORMAT)[0].color,'#ff5f45');

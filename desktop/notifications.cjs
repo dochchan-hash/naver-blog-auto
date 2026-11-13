@@ -8,7 +8,7 @@ function jobNotifications(getWindow){
     const running=['running','queued'].includes(job.status),stage=Math.min(3,Math.floor(job.progress/25)),previous=shown.get(job.id);
     if(previous&&(running?previous.status===job.status&&stage<=previous.stage:previous.status===job.status))return;
     const status=running?`진행 중 ${stage*25}%`:job.result?.needsReview?'원고 확인 필요':statuses[job.status]||'확인 필요';
-    const body=job.status==='completed'?(job.result?.needsReview?'원고를 작성했습니다. 검토가 필요한 항목을 확인해 주세요.':job.kind==='prepare'?'수정한 원고를 네이버 편집기에 준비했습니다. 최종 발행은 하지 않았습니다.':job.kind==='generate'&&job.result?.publish?'원고 작성과 네이버 등록을 완료했습니다.':`${names[job.kind]||'작업'}을 완료했습니다.`):job.message;
+    const body=job.status==='completed'?(job.result?.needsReview?'원고를 작성했습니다. 검토가 필요한 항목을 확인해 주세요.':job.kind==='prepare'?(job.result?.draftSaved?'카페에 임시저장했습니다. 최종 등록은 하지 않았습니다.':'수정한 원고를 네이버 편집기에 준비했습니다. 최종 발행은 하지 않았습니다.'):job.kind==='generate'&&job.result?.publish?'원고 작성과 네이버 등록을 완료했습니다.':`${names[job.kind]||'작업'}을 완료했습니다.`):job.message;
     const notification=new Notification({id:job.id,groupId:'lemonhouse-jobs',title:`${names[job.kind]||'블로그 스튜디오'} · ${status}`,body,silent:running});
     notification.on('click',()=>{const window=getWindow();if(!window||window.isDestroyed())return;if(window.isMinimized())window.restore();window.show();window.focus();});
     notification.on('failed',(_,error)=>{console.error('Windows 알림을 표시하지 못했습니다:',error);});

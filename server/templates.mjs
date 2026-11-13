@@ -3,7 +3,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import sharp from 'sharp';
 import {readPsd,initializeCanvas} from 'ag-psd';
 import {createCanvas,ImageData,loadImage,GlobalFonts} from '@napi-rs/canvas';
-import {templateSourceSignature} from '../shared/sources.mjs';
+import {caseCoverPhotos,templateSourceSignature} from '../shared/sources.mjs';
 import {templateFields} from '../shared/template-fields.mjs';
 import {checkCancelled} from './jobs.mjs';
 import {readCompletionTemplate,refreshCompletionTextStyles} from './completion-templates.mjs';
@@ -14,6 +14,15 @@ initializeCanvas(createCanvas,undefined,(w,h)=>new ImageData(w,h));
 GlobalFonts.loadSystemFonts();
 const fail=message=>Object.assign(new Error(message),{status:400});
 const flat=layers=>layers.flatMap(l=>l.hidden?[]:l.children?flat(l.children):[l]);
+const artboardRect=psd=>psd.children?.find(l=>l.artboard)?.artboard?.rect;
+
+export function readCoverFrame(buffer){
+  const psd=readPsd(buffer,{skipLayerImageData:true,skipCompositeImageData:true,skipThumbnail:true});
+  const photo=flat(psd.children||[]).find(l=>l.name==='메인사진');
+  if(!photo)throw fail('표지 PSD에서 사진 영역을 찾을 수 없습니다.');
+  const board=artboardRect(psd)||{left:0,top:0,right:psd.width,bottom:psd.height};
+  return {width:board.right-board.left,height:board.bottom-board.top,photo:{x:photo.left-board.left,y:photo.top-board.top,width:photo.right-photo.left,height:photo.bottom-photo.top}};
+}
 
 export function readTemplate(buffer,{unmapped=false}={}){
   if(unmapped)return readCompletionTemplate(buffer);
@@ -58,7 +67,7 @@ function fitText(ctx,layer,value,width,height=0){
   lines.forEach((line,i)=>ctx.fillText(line,x,(layer.top+layer.bottom)/2+i*size*1.2));
 }
 export async function renderTemplate(template,project,photoPath,assets){
-  const {psd,layers,fields,photo,kind}=template,artboard=psd.children.find(l=>l.artboard)?.artboard?.rect,canvas=createCanvas(psd.width,psd.height),ctx=canvas.getContext('2d'),background=createCanvas(psd.width,psd.height),back=background.getContext('2d');
+  const {psd,layers,fields,photo,kind}=template,artboard=artboardRect(psd),canvas=createCanvas(psd.width,psd.height),ctx=canvas.getContext('2d'),background=createCanvas(psd.width,psd.height),back=background.getContext('2d');
   ctx.drawImage(psd.canvas,0,0);
   for(const l of layers)if(l.canvas&&!l.text&&!l.clipping){back.globalAlpha=l.opacity??1;back.drawImage(l.canvas,l.left,l.top);}
   const replace=(l,value,width,height=0)=>{
@@ -68,7 +77,16 @@ export async function renderTemplate(template,project,photoPath,assets){
   };
   const values=templateFields(project,assets);
   if(kind==='cover'){
-    const w=photo.right-photo.left,h=photo.bottom-photo.top,image=await loadImage(await sharp(photoPath).rotate().resize(w,h,{fit:'cover',kernel:'lanczos3'}).png().toBuffer());
+    const w=photo.right-photo.left,h=photo.bottom-photo.top;
+    const source=sharp(photoPath).autoOrient();
+    const crop=project.caseCoverCrop;
+    if(crop&&(crop.zoom!==1||crop.x!==0||crop.y!==0)){
+      const {autoOrient:{width,height}}=await source.metadata();
+      const scale=Math.max(w/width,h/height)*crop.zoom;
+      const cropWidth=Math.max(1,Math.floor(w/scale)),cropHeight=Math.max(1,Math.floor(h/scale));
+      source.extract({left:Math.round((width-cropWidth)*(100-crop.x)/200),top:Math.round((height-cropHeight)*(100-crop.y)/200),width:cropWidth,height:cropHeight});
+    }
+    const image=await loadImage(await source.resize(w,h,{fit:'cover',kernel:'lanczos3'}).png().toBuffer());
     ctx.drawImage(image,photo.left,photo.top,w,h);
     replace(fields[0],values.coverTitle,psd.width*.87);
     replace(fields[1],values.coverConcept,psd.width*.87);
@@ -96,7 +114,7 @@ export class Templates {
     if(project?.postType==='completion')return this.renderCompletion(project,update,slotId);
     if(project?.postType!=='case')throw fail('시공사례에서 템플릿 이미지를 만들 수 있습니다.');
     if(!project.original.name.trim())throw fail('시공 현장명을 먼저 입력해 주세요.');
-    const all=this.store.assets(),projectAssets=all.filter(a=>a.projectId===projectId),photos=projectAssets.filter(a=>a.role==='photo'&&!a.templateOutput&&!a.excluded&&a.status==='ready').sort((a,b)=>a.order-b.order),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos[0];
+    const all=this.store.assets(),projectAssets=all.filter(a=>a.projectId===projectId),photos=caseCoverPhotos(projectAssets).filter(a=>a.status==='ready'),photo=photos.find(a=>a.id===(project.templatePhotoId||project.coverAssetId))||photos[0];
     if(!photo)throw fail('표지에 사용할 현장 사진을 첨부해 주세요.');
     const input={...project,templatePhotoId:photo.id},signature=templateSourceSignature(input,projectAssets),outputs=[];
     let scopeError;for(const kind of skipScope?['cover']:['cover','scope'])try{

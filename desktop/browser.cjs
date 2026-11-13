@@ -120,6 +120,34 @@ class BrowserBridge {
     await this.waitFor(selector);const box=await this.evaluate(({selector,text})=>{const el=[...document.querySelectorAll(selector)].find(e=>(!text||((e.textContent||'')+' '+(e.getAttribute('aria-label')||'')).includes(text))&&e.getBoundingClientRect().width>0);if(!el)throw new Error('네이버 버튼을 찾지 못했습니다.');let r=el.getBoundingClientRect();if(r.top<0||r.bottom>innerHeight||r.left<0||r.right>innerWidth)el.scrollIntoView({block:'center'});r=el.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};},{selector,text},{selector});
     await this.pointerClick(box);await sleep(120);
   }
+  async clickVerifiedButton(selector){
+    let frame=await this.waitFor(selector);
+    const locate=selector=>{
+      const button=[...document.querySelectorAll(selector)].find(e=>e.getBoundingClientRect().width>0&&!e.matches('[disabled],[aria-disabled="true"],.nvu_btn_disabled'));
+      if(!button)return null;
+      button.scrollIntoView({block:'nearest',inline:'nearest'});
+      const rect=button.getBoundingClientRect(),x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+      return button.contains(document.elementFromPoint(x,y))?{x,y}:null;
+    };
+    let point=await this.readFrame(frame,`(${locate})(${JSON.stringify(selector)})`);
+    while(point&&frame.parent){
+      const parent=frame.parent,index=parent.frames.findIndex(child=>child.frameTreeNodeId===frame.frameTreeNodeId);
+      const translate=({index,x,y})=>{
+        const child=window.frames[index];
+        if(!child)return null;
+        const host=[...document.querySelectorAll('iframe,frame')].find(e=>e.contentWindow===child);
+        if(!host)return null;
+        const rect=host.getBoundingClientRect();
+        x=rect.left+(host.clientLeft+x)*(rect.width/host.offsetWidth);
+        y=rect.top+(host.clientTop+y)*(rect.height/host.offsetHeight);
+        return document.elementFromPoint(x,y)===host?{x,y}:null;
+      };
+      point=await this.readFrame(parent,`(${translate})(${JSON.stringify({index,...point})})`);
+      frame=parent;
+    }
+    if(!point)throw new Error('영상 완료 버튼의 클릭 위치를 확인하지 못했습니다. 현재 원고는 보존했습니다.');
+    await this.pointerClick(point);
+  }
   async pointerClick(box){const wc=this.window.webContents;wc.focus();const attached=wc.debugger.isAttached();if(!attached)wc.debugger.attach('1.3');try{await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',button:'none',buttons:0,...box});await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...box});await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...box});}finally{if(!attached)wc.debugger.detach();}}
   async text(selector,text){await this.waitFor(selector);await this.evaluate(({selector,text})=>{const node=document.querySelector(selector);const el=node.matches('[contenteditable="true"],input,textarea')?node:node.querySelector('[contenteditable="true"]')||node;el.focus();if('value'in el){const proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;setter?.call(el,text);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}else{document.getSelection()?.selectAllChildren(el);}}, {selector,text},{selector});
     const isInput=await this.evaluate(selector=>{const el=document.querySelector(selector);return 'value'in el;},selector,{selector});
@@ -166,7 +194,28 @@ class BrowserBridge {
     await this.focusText('[data-lemon-insertion="true"]',{last:false});await this.key('End');await this.evaluate(()=>{document.querySelectorAll('[data-lemon-insertion]').forEach(p=>delete p.dataset.lemonInsertion);},null,{selector:'.se-component'});
   }
   async key(keyCode,{modifiers=[]}={}){const wc=this.window.webContents,keys={Return:['Enter',13],ArrowDown:['ArrowDown',40],End:['End',35]};if(!keys[keyCode]){for(const type of ['keyDown','keyUp'])wc.sendInputEvent({type,keyCode,modifiers});}else{const attached=wc.debugger.isAttached();if(!attached)wc.debugger.attach('1.3');try{const [key,windowsVirtualKeyCode]=keys[keyCode],mask=modifiers.reduce((n,m)=>n|({shift:8,control:2,meta:4,alt:1}[m]||0),0);await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key,code:key==='Enter'?'Enter':key,windowsVirtualKeyCode,modifiers:mask,...(key==='Enter'&&!mask?{text:'\r',unmodifiedText:'\r'}:{})});await wc.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key,windowsVirtualKeyCode,modifiers:mask});}finally{if(!attached)wc.debugger.detach();}}await sleep(80);}
-  async pasteHtml(html){const saved=await snapshotClipboard();try{await clipboard.write([new ClipboardItem({'text/plain':html.replace(/<[^>]*>/g,''),'text/html':html})]);this.window.webContents.focus();this.window.webContents.paste();await sleep(400);}finally{if(saved.length)await clipboard.write(saved);else await clipboard.clear();}}
+  async pasteHtml(html,text){
+    const saved=await snapshotClipboard();
+    try{
+      const before=await this.evaluate(()=>[...document.querySelectorAll('.se-component.se-text .__se-node,.se-component.se-quotation .__se-node')].map(e=>e.textContent).join('').replace(/[\s\u200B\uFEFF]/g,'').length,null,{selector:'.se-component',readOnly:true});
+      await clipboard.write([new ClipboardItem({'text/plain':text,'text/html':html})]);
+      this.window.webContents.focus();this.window.webContents.paste();
+      const until=Date.now()+10000;let stable=0;
+      do{
+        this.operationSignal?.throwIfAborted();
+        const inserted=await this.evaluate(({before,text})=>{
+          const normal=s=>(s||'').replace(/[\s\u200B\uFEFF]/g,'');
+          const all=[...document.querySelectorAll('.se-component.se-text .__se-node,.se-component.se-quotation .__se-node')].map(e=>e.textContent).join('');
+          const tail=[...document.querySelectorAll('.se-component.se-text,.se-component.se-quotation')].at(-1);
+          const last=[...tail?.querySelectorAll('.se-text-paragraph .__se-node')||[]].map(e=>e.textContent).join('');
+          return normal(all).length>=before+normal(text).length&&normal(last).endsWith(normal(text));
+        },{before,text},{selector:'.se-component',readOnly:true});
+        stable=inserted?stable+1:0;if(stable===2)return;
+        await sleep(150);
+      }while(Date.now()<until);
+      throw new Error('본문 붙여넣기 반영을 확인하지 못했습니다. 다음 사진·영상 입력을 중단하고 현재 원고를 보존했습니다.');
+    }finally{if(saved.length)await clipboard.write(saved);else await clipboard.clear();}
+  }
   async upload(files,trigger){
     const wc=this.window.webContents;
     if(!wc.debugger.isAttached())wc.debugger.attach('1.3');
@@ -184,6 +233,12 @@ class BrowserBridge {
       const nodeId=find(doc.root);if(!nodeId)throw new Error('네이버 사진 업로드 입력란을 찾지 못했습니다.');
       await wc.debugger.sendCommand('DOM.setFileInputFiles',{nodeId,files});
     }finally{clearTimeout(timer);if(listener)wc.debugger.off('message',listener);if(wc.debugger.isAttached()){await wc.debugger.sendCommand('Page.setInterceptFileChooserDialog',{enabled:false}).catch(()=>{});wc.debugger.detach();}}
+  }
+  async watchDialog(pattern){
+    const debuggerApi=this.window.webContents.debugger,attached=debuggerApi.isAttached();if(!attached)debuggerApi.attach('1.3');
+    const state={message:'',close:()=>{debuggerApi.off('message',listener);if(!attached&&debuggerApi.isAttached())debuggerApi.detach();}};
+    const listener=(event,method,params)=>{if(method==='Page.javascriptDialogOpening'&&pattern.test(params.message||'')){state.message=params.message;debuggerApi.sendCommand('Page.handleJavaScriptDialog',{accept:true}).catch(()=>{});}};
+    try{await debuggerApi.sendCommand('Page.enable');debuggerApi.on('message',listener);return state;}catch(error){state.close();throw error;}
   }
   async snapshot(){
     if(!this.window)return null;

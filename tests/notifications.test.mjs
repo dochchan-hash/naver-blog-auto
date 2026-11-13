@@ -19,6 +19,7 @@ test('시스템이 알림을 차단해도 같은 진행 알림을 반복하지 �
   const job={id:'blocked',kind:'generate',status:'running',progress:50,message:'작성 중'};notify(job);notifications[0].emit('failed',{},'Windows 알림 차단');notify({...job,progress:51});assert.equal(notifications.length,1);
   notify({...job,status:'failed',message:'사용량 제한으로 작성하지 못했습니다.'});assert.match(notifications.at(-1).options.title,/실패/);assert.equal(notifications.at(-1).options.body,'사용량 제한으로 작성하지 못했습니다.');
   notify({...job,id:'review',status:'completed',result:{needsReview:true}});assert.match(notifications.at(-1).options.title,/원고 확인 필요/);assert.match(notifications.at(-1).options.body,/검토가 필요한 항목/);
+  notify({...job,id:'cafe-draft',kind:'prepare',status:'completed',result:{draftSaved:true}});assert.match(notifications.at(-1).options.body,/카페에 임시저장했습니다/);assert.match(notifications.at(-1).options.body,/최종 등록은 하지 않았습니다/);
 });
 test('실패 이유와 중단·검토 필요 상태를 완료와 구분하며 알림 오류는 작업을 실패시키지 않는다',async()=>{
   const changes=[],store={put(_,id,value){this.saved={...value};}};const jobs=new Jobs(store,job=>changes.push(job));jobs.start('p','generate',async()=>{throw Error('사용량 제한으로 원고 작성 실패');});await tick();assert.equal(changes.at(-1).status,'failed');assert.match(changes.at(-1).message,/사용량 제한/);

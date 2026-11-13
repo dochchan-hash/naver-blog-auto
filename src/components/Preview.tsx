@@ -1,17 +1,16 @@
 import {useState,type CSSProperties} from 'react';
 import {Monitor,Smartphone,Image,Eye} from 'lucide-react';
 import type {Project,Asset} from '../../shared/model';
-import {postSite,postLabel,isPlanCollage} from '../../shared/domain.mjs';
+import {postSite,postLabel,publicationBlocks,isPlanCollage} from '../../shared/domain.mjs';
 import {formatFor,blockTextStyles,blockTextLines} from '../../shared/format.mjs';
-import {photoUploadBlocks} from '../../shared/photo-layout.mjs';
 export default function Preview({project,assets}:{project:Project;assets:Asset[]}){
-  const [mobile,setMobile]=useState(false);const map=new Map(assets.map(a=>[a.id,a])),blocks=photoUploadBlocks(project.blocks) as Project['blocks'];
+  const [mobile,setMobile]=useState(false);const map=new Map(assets.map(a=>[a.id,a])),blocks=publicationBlocks(project,assets) as Project['blocks'];
   const format=formatFor(project);const css=({align,...style}:typeof format.body):CSSProperties=>({...style,textAlign:align,fontFamily:`${style.fontFamily},sans-serif`,fontStyle:'normal',textDecoration:'none'});
   return <aside className={`preview-panel ${mobile?'mobile':''}`}><div className="preview-header"><span><Eye size={15}/>게시글 미리보기</span><div><button className={!mobile?'active':''} onClick={()=>setMobile(false)} aria-label="PC 미리보기" aria-pressed={!mobile}><Monitor size={16}/></button><button className={mobile?'active':''} onClick={()=>setMobile(true)} aria-label="모바일 미리보기" aria-pressed={mobile}><Smartphone size={16}/></button></div></div><div className="preview-scroll"><div className="preview-page"><div className="preview-blog-name">LEMON HOUSE · {postLabel(project)}</div><h1>{project.title||`${postSite(project).name||'아파트'} ${postLabel(project)}`}</h1><div className="preview-author">레몬하우스 인테리어 <span>게시글 미리보기</span></div><div className="preview-divider"/>
     {blocks.length?blocks.map((b,i)=>{
       if(b.kind==='map')return <div className="preview-map" key={b.id}><strong>현장 지도</strong><p>{b.text}</p><small>네이버 장소 검색에서 확인 후 지도 카드를 넣습니다.</small></div>;
       if(b.kind==='video'){const a=map.get(b.assetIds?.[0]||'');return a?<figure className="preview-video" key={b.id}><video controls preload="metadata" aria-label={b.text||'현장 동영상'} src={a.originalUrl}/><figcaption>{b.text}</figcaption></figure>:null;}
-      if(b.kind==='photos')return <div className={`preview-photos ${b.layout==='slide'?'slide':''}`} key={b.id}>{b.assetIds?.map(id=>{const a=map.get(id);return a?<img key={id} src={a.previewUrl} alt={a.space} style={b.space==='표지'||isPlanCollage(project,b,assets)?{aspectRatio:'1 / 1',objectFit:'cover'}:undefined}/>:null;})}</div>;
+      if(b.kind==='photos')return <div className={`preview-photos ${b.layout==='slide'?'slide':''}`} key={b.id}>{b.assetIds?.map(id=>{const a=map.get(id);return a?<img key={id} src={a.previewUrl} alt={a.space} style={isPlanCollage(project,b)?{aspectRatio:'1 / 1',objectFit:id===project.templatePhotoId?'cover':'contain'}:b.space==='표지'?{aspectRatio:'1 / 1',objectFit:'cover'}:undefined}/>:null;})}</div>;
       if(b.kind==='divider')return <hr className={`post-rule ${b.variant||format.dividerVariant}`} key={b.id}/>;
       const styles=blockTextStyles(b,format),style=styles[0];
       if(b.kind==='heading')return <h3 className="post-heading" style={{textAlign:style.align}} key={b.id}><span style={css(style)}>{b.text}</span></h3>;

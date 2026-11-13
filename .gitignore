@@ -8,4 +8,5 @@ release/
 .DS_Store
 tmp/
 coverage/
+output/
 *.log

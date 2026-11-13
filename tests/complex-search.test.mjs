@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {Naver} from '../server/naver.mjs';
+import {complexQueries,regionMatches,relatedPlace} from '../shared/places.mjs';
 
-function fixture({empty=false,typo=false,complex='문래대림',address='서울시 영등포구 문래동5가',matchQuery='문래대'}={}){
+function fixture({empty=false,typo=false,stale=false,complex='문래대림',address='서울시 영등포구 문래동5가',matchQuery='문래대'}={}){
   const typed=[],details=[];let observations=0,linkReads=0,selected=false;
   const result={innerText:'아파트\n'+complex+'\n'+address,getBoundingClientRect:()=>({width:100}),querySelector:selector=>({textContent:selector.includes('__address')?address:complex}),click:()=>{selected=true;}};
-  const root={get innerText(){return empty||typo&&input.value!==matchQuery?'검색 결과가 없습니다':result.innerText;},querySelectorAll:()=>empty||typo&&input.value!==matchQuery||++observations<3?[]:[result,result]};
+  const previous={...result,innerText:'아파트\n헬리오시티\n서울시 송파구 가락동',querySelector:selector=>({textContent:selector.includes('__address')?'서울시 송파구 가락동':'헬리오시티'})};
+  const root={get innerText(){return empty||typo&&input.value!==matchQuery?'검색 결과가 없습니다':result.innerText;},querySelectorAll:()=>empty||typo&&input.value!==matchQuery?[]:++observations<3?(stale?[previous]:[]):[result,result]};
   const input={value:'',parentElement:{parentElement:root}},content={querySelectorAll:()=>selected&&++linkReads>=3?[{textContent:'문래대림',href:'https://fin.land.naver.com/complexes/3790',getBoundingClientRect:()=>({width:100})}]:[]};
   const document={querySelector:selector=>selector==='#header-search'?input:content,querySelectorAll:()=>{throw Error('검색창 밖의 최근 단지·지도 버튼을 읽으면 안 됩니다.');}};
   const bridge={exclusive:fn=>fn(),goto:async()=>{observations=0;selected=false;},click:async()=>{},waitFor:async()=>{},text:async(selector,value)=>{assert.equal(selector,'#header-search');input.value=value;typed.push(value);},evaluate:async(fn,arg)=>vm.runInNewContext(`(${fn.toString()})(arg)`,{document,arg})};
@@ -19,9 +21,15 @@ test('아파트명만 넣어도 접미사를 정리하고 늦게 도착한 실�
   assert.deepEqual(f.typed,['문래대림']);assert.equal(results.length,1);assert.equal(results[0].suggested,false);assert.equal(results[0].complexName,'문래대림');assert.equal(results[0].address,'서울시 영등포구 문래동5가');assert(f.observations()>=3);
 });
 
+test('새 검색 결과가 오기 전 이전 단지 목록이 남아 있어도 이름을 줄이거나 실패하지 않는다',async()=>{
+  const f=fixture({stale:true,complex:'율리벽산블루밍1단지',address:'부산시 북구 금곡동'});
+  const results=await f.naver.searchComplex('율리벽산블루밍','부산시 금곡동');
+  assert.deepEqual(f.typed,['부산 금곡동 율리벽산블루밍']);assert.equal(results[0].complexName,'율리벽산블루밍1단지');
+});
+
 test('동 이름을 붙인 검색어도 결과 이름과 주소를 따로 읽어 같은 단지를 반환한다',async()=>{
   const f=fixture({complex:'에일린의뜰',address:'부산시 강서구 명지동'}),results=await f.naver.searchComplex('명지동 에일린의뜰','부산광역시 강서구 명지국제5로 60');
-  assert.deepEqual(f.typed,['명지동 에일린의뜰']);assert.equal(results.length,1);assert.equal(results[0].complexName,'에일린의뜰');assert.equal(results[0].suggested,false);
+  assert.deepEqual(f.typed,['부산 강서구 명지동 에일린의뜰']);assert.equal(results.length,1);assert.equal(results[0].complexName,'에일린의뜰');assert.equal(results[0].suggested,false);
 });
 
 test('검색 후보를 선택하면 해당 단지의 상세 링크가 도착할 때까지 기다린다',async()=>{
@@ -39,4 +47,19 @@ test('단지 없음과 결과 읽기 오류를 구분하고 빈 일반명은 네
 test('철자가 비슷한 단지는 짧은 이름으로 다시 찾고 사용자가 선택할 추천 후보로 반환한다',async t=>{
   let clock=0;t.mock.method(Date,'now',()=>clock+=1000);const f=fixture({typo:true});
   const results=await f.naver.searchComplex('문래대륌아파트');assert.deepEqual(f.typed,['문래대륌','문래대']);assert.equal(results[0].complexName,'문래대림');assert.equal(results[0].suggested,true);assert.equal(f.details.length,0);
+});
+
+test('후보를 재선택할 때도 지역과 원래 단지명을 유지한다',async()=>{
+  const f=fixture(),results=await f.naver.searchComplex('문래대림','서울시 영등포구');
+  await f.naver.selectComplex(results[0].key);assert.deepEqual(f.typed,['서울 영등포구 문래대림','서울 영등포구 문래대림']);
+  assert(regionMatches('부산시 금곡동','부산광역시 북구 금곡동'));assert(!regionMatches('부산시 금곡동','부산시 북구 화명동'));
+  assert(complexQueries('율리벽산블루밍','부산시 금곡동').includes('율리벽산블루밍'));
+  assert(complexQueries('가'.repeat(40),'부산시 금곡동').every(s=>s.length<=30));
+});
+
+test('유사명은 중간에 역 같은 한 글자가 붙어도 추천하되 서로 다른 차수를 같은 단지로 보지 않는다',()=>{
+ assert(relatedPlace('율리벽산블루밍','율리역벽산블루밍2단지'));
+ assert(relatedPlace('문래대륌','문래대림'));
+ assert(!relatedPlace('율리벽산블루밍1단지','율리역벽산블루밍2단지'));
+ assert(!relatedPlace('문래대림','헬리오시티'));
 });

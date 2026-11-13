@@ -1,13 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import sharp from 'sharp';import {writePsdBuffer} from 'ag-psd';import {createCanvas} from '@napi-rs/canvas';
 import {createServer} from '../server/index.mjs';import {readTemplate,renderTemplate} from '../server/templates.mjs';import {AI} from '../server/ai.mjs';
-import {CASE_FORMAT,blockTextStyles} from '../shared/format.mjs';import {draftWarnings,photoLayoutBlocks,publicationCategory,SPACES,newProject} from '../shared/domain.mjs';
+import {CASE_FORMAT,blockTextStyles} from '../shared/format.mjs';import {draftWarnings,photoLayoutBlocks,publicationBlocks,publicationCategory,SPACES,newProject} from '../shared/domain.mjs';
 import {templateFields,cafeScopeSignature} from '../shared/template-fields.mjs';import {templateSourceSignature} from '../shared/sources.mjs';
-test('공사범위 앞에 선택한 표지 원본을 묶고 도면·공간별 사진은 보존한다',()=>{
-  const p=newProject('plan-collage','case');Object.assign(p,{templatePhotoId:'raw',coverAssetId:'cover',category:'30PY',title:'시공사례',keywords:[],blocks:[{id:'title',kind:'text',text:'INTERIOR PLAN'},{id:'entrance',kind:'quote',space:'현관',text:'현관'},{id:'body',kind:'text',space:'현관',text:'현관 설명'}]});p.original.name='시공 현장';
-  const assets=[{id:'raw',role:'photo',space:'현관',order:0,status:'ready'},{id:'cover',role:'photo',space:'표지',templateOutput:'cover',order:0,status:'ready'},{id:'scope',role:'photo',space:'도면',templateOutput:'scope',group:'interior-plan',order:1,status:'ready'},{id:'floorplan',role:'photo',space:'도면',templateOutput:'floorplan',group:'interior-plan',order:0,status:'ready'}];
-  p.blocks=photoLayoutBlocks(p,assets);assert.deepEqual(p.blocks.filter(b=>b.kind==='photos').map(b=>b.assetIds),[['cover'],['raw','scope'],['floorplan'],['raw']]);assert.equal(p.blocks.find(b=>b.id==='body').text,'현관 설명');assert(!draftWarnings(p,assets).some(w=>/중복 배치|사진 순서/.test(w)));
-  p.blocks.push({id:'duplicate',kind:'photos',space:'현관',assetIds:['raw']});assert(draftWarnings(p,assets).some(w=>w.includes('중복 배치')));
+test('시공사례의 표지 원본은 예전 원고에서도 공사범위와 한 번만 묶고 공간별 사진에서는 뺀다',()=>{
+  const p=newProject('cover-only','case');Object.assign(p,{templatePhotoId:'raw',coverAssetId:'cover',category:'30PY',title:'시공사례',keywords:[],blocks:[{id:'cover',kind:'photos',space:'표지',assetIds:['cover']},{id:'title',kind:'text',text:'INTERIOR PLAN'},{id:'scope',kind:'photos',space:'도면',assetIds:['raw','scope']},{id:'floorplan',kind:'photos',space:'도면',assetIds:['floorplan']},{id:'entrance',kind:'quote',space:'현관',text:'현관'},{id:'raw',kind:'photos',space:'현관',assetIds:['raw']},{id:'door',kind:'photos',space:'현관',assetIds:['raw','door']},{id:'body',kind:'text',space:'현관',text:'현관 설명'}]});p.original.name='시공 현장';
+  const assets=[{id:'raw',role:'template-photo',space:'현관',order:0,status:'ready'},{id:'door',role:'photo',space:'현관',order:1,status:'ready'},{id:'cover',role:'photo',space:'표지',templateOutput:'cover',order:0,status:'ready'},{id:'scope',role:'photo',space:'도면',templateOutput:'scope',group:'interior-plan',order:1,status:'ready'},{id:'floorplan',role:'photo',space:'도면',templateOutput:'floorplan',group:'interior-plan',order:0,status:'ready'}];
+  const scopeOnly={...p,blocks:p.blocks.map(b=>b.id==='scope'?{...b,assetIds:['scope']}:b)};
+  for(const blocks of [publicationBlocks(p,assets),publicationBlocks(scopeOnly,assets),photoLayoutBlocks(p,assets)]){
+    assert.deepEqual(blocks.filter(b=>b.kind==='photos').map(b=>b.assetIds),[['cover'],['raw','scope'],['floorplan'],['door']]);assert.equal(blocks.find(b=>b.space==='도면'&&b.kind==='photos').layout,'collage');assert.equal(blocks.find(b=>b.id==='body').text,'현관 설명');
+  }
+  assert(!draftWarnings(p,assets).some(w=>/중복 배치|사진 순서/.test(w)));
+  p.blocks.push({id:'duplicate',kind:'photos',space:'현관',assetIds:['door']});assert(draftWarnings(p,assets).some(w=>w.includes('중복 배치')));
 });
 test('INTERIOR PLAN은 도입 본문과 구분해 원본 색·굵기·왼쪽 정렬을 적용한다',()=>{
   const plan={...CASE_FORMAT.body,color:'rgb(255, 95, 69)',fontSize:16,fontWeight:700,align:'left'},format={...CASE_FORMAT,textStyles:{intro:[{...CASE_FORMAT.body,align:'center'}],plan:[plan]}},block={kind:'text',formatRole:'intro',text:'INTERIOR PLAN'};
@@ -20,6 +24,41 @@ function coverFixture(){
   const photo=createCanvas(880,605);photo.getContext('2d').fillRect(0,0,880,605);
   return writePsdBuffer({width:1000,height:1000,canvas,children:[{name:'배경',left:0,top:0,canvas},{name:'메인사진',left:60,top:270,canvas:photo},field('이전 현장',110),field('이전 콘셉트',195)]});
 }
+
+test('시공사례 표지의 위치와 확대를 저장하고 원본 방향에 맞춰 같은 표지 JPG를 갱신한다',async t=>{
+  const {runtime,request,upload}=await fixture(t);
+  let project=runtime.store.createProject('case');
+  const template=await (await upload(project.id,'template',coverFixture(),'표지.psd')).json();
+  const frame=await request(`/assets/${template.id}/cover-frame`,'GET');
+  assert.equal(frame.status,200);
+  assert.deepEqual(await frame.json(),{width:1000,height:1000,photo:{x:60,y:270,width:880,height:605}});
+  const canvas=createCanvas(600,900),ctx=canvas.getContext('2d');
+  for(const [index,color] of ['#ff0000','#00ff00','#0000ff','#ffff00'].entries()){
+    ctx.fillStyle=color;ctx.fillRect(index%2*300,Math.floor(index/2)*450,300,450);
+  }
+  const original=await sharp(canvas.toBuffer('image/png')).withMetadata({orientation:6}).jpeg().toBuffer();
+  const uploaded=await upload(project.id,'template-photo',original,'세로 방향.jpg');assert.equal(uploaded.status,201);
+  const photo=await uploaded.json();assert.equal(photo.role,'template-photo');
+  await runtime.assets.queue;
+  project=runtime.store.get('project',project.id);
+  const selected=await request(`/projects/${project.id}`,'PUT',{...project,original:{...project.original,name:'위치 테스트'},templatePhotoId:photo.id});assert.equal(selected.status,200);project=await selected.json();
+  const render=async()=>{await runtime.templates.render(project.id);project=runtime.store.get('project',project.id);return runtime.store.asset(project.coverAssetId);};
+  const before=await render();
+  assert.equal(templateSourceSignature({...project,caseCoverCrop:{zoom:1,x:0,y:0}},runtime.store.assets(project.id)),before.templateSignature);
+  const invalid=await request(`/projects/${project.id}`,'PUT',{...project,caseCoverCrop:{zoom:4,x:0,y:0}});
+  assert.equal(invalid.status,400);
+  const crop={zoom:3,x:100,y:100};
+  const saved=await request(`/projects/${project.id}`,'PUT',{...project,caseCoverCrop:crop});
+  assert.equal(saved.status,200);assert.deepEqual((await saved.json()).caseCoverCrop,crop);
+  assert.notEqual(templateSourceSignature(runtime.store.get('project',project.id),runtime.store.assets(project.id)),before.templateSignature);
+  const after=await render();
+  assert.equal(after.id,before.id);assert.notEqual(after.hash,before.hash);
+  const pixel=await sharp(runtime.assets.resolve(after.originalPath)).extract({left:500,top:500,width:1,height:1}).raw().toBuffer();
+  assert(pixel[2]>240&&pixel[0]<15&&pixel[1]<15,'회전 후 왼쪽 상단의 파란 영역이 들어가야 합니다.');
+  assert.deepEqual(await fs.readFile(runtime.assets.resolve(photo.originalPath)),original);
+  const square=await sharp(await runtime.assets.planPhotoForUpload(runtime.store.asset(photo.id))).metadata();
+  assert.deepEqual([square.width,square.height],[600,600]);assert.deepEqual(await fs.readFile(runtime.assets.resolve(photo.originalPath)),original);
+});
 
 test('표지 사진 축소는 원본의 미세 입자를 평균화하고 확대된 노이즈를 만들지 않는다',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lemon-cover-noise-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
@@ -78,7 +117,7 @@ test('시공사례와 추천글의 보관·스타일·공간·카테고리를 �
   const style={name:'시공사례 양식',rules:'시공사례 본문 규칙',referenceUrls:[]};assert.equal((await request('/style?postType=case','PUT',style)).status,200);assert.notEqual(runtime.store.get('style','main').name,style.name);assert.equal(runtime.store.get('style','case').name,style.name);
   assert.equal((await request(`/projects/${p.id}`,'PUT',{...p,postType:'recommendation'})).status,400);
   runtime.store.put('asset','case-photo',{id:'case-photo',projectId:p.id,role:'photo',space:'거실'});assert.equal((await request('/assets/batch','PATCH',[{id:'case-photo',space:'복도'}])).status,200);assert.equal((await request('/assets/batch','PATCH',[{id:'case-photo',space:'없는 공간'}])).status,400);
-  runtime.store.put('asset','rec-photo',{id:'rec-photo',projectId:data.projects[0].id,role:'photo',space:'거실'});assert.equal((await request('/assets/batch','PATCH',[{id:'rec-photo',space:'복도'}])).status,400);assert.equal(SPACES.length,8);
+  runtime.store.put('asset','rec-photo',{id:'rec-photo',projectId:data.projects[0].id,role:'photo',space:'거실'});assert.equal((await request('/assets/batch','PATCH',[{id:'rec-photo',space:'복도'}])).status,400);assert.equal(SPACES.length,15);
 });
 test('포토샵 없이 PSD·사진을 등록하고 JPG 미리보기·다운로드·표지를 갱신하며 원본을 보존한다',async t=>{
   const {runtime,data,request,upload,cookie}=await fixture(t);let p=await (await request('/projects','POST',{postType:'case'})).json();const psd=coverFixture();assert.equal(readTemplate(psd).kind,'cover');
@@ -106,7 +145,7 @@ test('시공사례는 입력한 카페 링크를 불러온 원본과 시공사�
   runtime.store.put('style','case',{rules:'시공사례만의 문체 규칙',status:'edited',referenceUrls:[],formatProfile:CASE_FORMAT});runtime.store.put('style','main',{rules:'추천글만의 문체 규칙',status:'edited',referenceUrls:[]});
   runtime.store.put('asset','kitchen',{id:'kitchen',projectId:p.id,role:'photo',space:'주방',order:0,status:'ready',hash:'photo',analysis:{description:'화이트 주방'}});
   const reads=[],ai=new AI(runtime.store,{}, {},{readPost:async request=>(reads.push(request),{text})});let calls=0;
-  ai.call=async(instructions,content)=>{calls++;if(instructions.includes('cafeFacts'))return {cafeFacts:[{space:'주방',item:'화이트 가구 설치',evidence:'화이트 가구를 설치했습니다',uncertain:false}],conflicts:[],warnings:[]};assert.match(instructions,/시공사례만의 문체 규칙/);assert(!instructions.includes('추천글만의 문체 규칙'));assert.match(instructions,/카페 마감글 원본/);assert.equal(JSON.parse(content[0].text).cafeSource,text);return {title:'현재 시공 현장 시공사례',summary:'화이트와 우드의 조화',intro:'시공 현장을 소개합니다.',sections:[{space:'주방',text:'화이트 가구로 정돈된 인상을 완성했습니다.\n우드 선반이 따뜻한 분위기를 더합니다.'}],outro:'감사합니다.',tags:[],warnings:[]};};
+  ai.call=async(instructions,content)=>{const input=JSON.parse(content[0].text);if(instructions.includes('공간별 시공 분류'))return {items:[{space:'주방',item:'화이트 가구 설치',sourceIds:['fact:0'],photoIds:['kitchen']}],warnings:[]};if(instructions.includes('본문 시공 대조'))return {checks:[{workId:'work-1',blockId:input.blocks.find(b=>b.space==='주방').id,quote:'화이트 가구로 정돈된 인상을 완성했습니다.'}],issues:[]};calls++;if(instructions.includes('cafeFacts'))return {cafeFacts:[{space:'주방',item:'화이트 가구 설치',evidence:'화이트 가구를 설치했습니다',uncertain:false}],conflicts:[],warnings:[]};assert.match(instructions,/시공사례만의 문체 규칙/);assert(!instructions.includes('추천글만의 문체 규칙'));assert.match(instructions,/카페 마감글 원본/);assert.equal(JSON.parse(content[0].text).cafeSource,text);return {title:'현재 시공 현장 시공사례',summary:'화이트와 우드의 조화',intro:'시공 현장을 소개합니다.',sections:[{space:'주방',text:'화이트 가구로 정돈된 인상을 완성했습니다.\n우드 선반이 따뜻한 분위기를 더합니다.'}],outro:'감사합니다.',tags:[],warnings:[]};};
   const result=await ai.generate(p.id,()=>{});assert.deepEqual(reads,[url]);assert.equal(calls,2);assert.equal(result.project.sourceText,text);
   await ai.generate(p.id,()=>{});assert.equal(reads.length,1,'확인한 원본 본문은 다시 읽어 덮어쓰지 않습니다.');const blocks=runtime.store.get('project',p.id).blocks;
   runtime.store.updateProject(p.id,{cafeUrl:'https://cafe.naver.com/construction/456',sourceText:''});ai.browser.readPost=async()=>({text:''});await assert.rejects(ai.generate(p.id,()=>{}),/카페 마감글 본문을 읽지 못/);assert.equal(calls,3);assert.deepEqual(runtime.store.get('project',p.id).blocks,blocks);

@@ -1,6 +1,27 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {Store} from '../server/store.mjs';import {AI} from '../server/ai.mjs';import {REFERENCE_FORMAT} from '../shared/format.mjs';
 import vm from 'node:vm';import {EventEmitter} from 'node:events';
 import {Naver} from '../server/naver.mjs';
+
+test('붙여넣기 반영이 늦어도 본문이 안정될 때까지 클립보드를 유지하고 다음 사진 입력을 기다린다',async()=>{
+  let clock=0,requested=false,restored=false,reads=0;
+  const events=[],text='샤워 공간에 브론즈 유리 파티션을 시공했습니다.';
+  class Item{constructor(data){this.data=data;}}
+  const clipboard={read:async()=>[{types:['text/plain'],getType:async()=> '원래 클립보드'}],write:async items=>{
+    const value=items[0].data['text/plain'];events.push(value===text?'clipboard-body':'clipboard-restored');
+    if(value!==text){assert(clock>=750);restored=true;}
+  }};
+  const module={exports:{}};
+  vm.runInNewContext(await fs.readFile('desktop/browser.cjs','utf8'),{module,require:()=>({clipboard,ClipboardItem:Item}),Date:{now:()=>clock},setTimeout:fn=>{clock+=150;fn();},clearTimeout,process:{platform:'win32'},URL});
+  const bridge=new module.exports.BrowserBridge();
+  bridge.window={webContents:{focus(){},paste(){assert(!requested);requested=true;events.push('paste');}}};
+  bridge.evaluate=async(fn,arg)=>{
+    assert(!restored);if(!arg)return 0;
+    reads++;const ready=clock>=600,document={querySelectorAll:selector=>selector.includes('.__se-node')?(ready?[{textContent:text}]:[]):[{querySelectorAll:()=>ready?[{textContent:text}]:[]}]};
+    return vm.runInNewContext(`(${fn.toString()})(arg)`,{document,arg});
+  };
+  await bridge.pasteHtml('<p>'+text+'</p>',text);events.push('next-image');
+  assert(reads>=6);assert.deepEqual(events,['clipboard-body','paste','clipboard-restored','next-image']);
+});
 test('연속 본문에서는 마지막 모듈의 문단 끝에서 새 빈 문단을 확인한 뒤 이어 쓴다',async()=>{
   for(const createsBlank of [true,false]){
     let clock=0;const module={exports:{}};vm.runInNewContext(await fs.readFile('desktop/browser.cjs','utf8'),{module,require:()=>({}),process:{platform:'win32'},Date:{now:()=>clock+=1000},setTimeout,clearTimeout,URL});

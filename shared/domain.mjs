@@ -1,8 +1,9 @@
 import {needsSourceCheck,sourceReviewCurrent,resolvedSourceEvidence,unresolvedConstructionFacts,draftSourceSignature,templateSourceSignature} from './sources.mjs';
-import {formatFor,textCss,blockTextStyles,blockTextLines,referenceSpaceOrder,referenceStructure,referenceValue} from './format.mjs';
-import {completionSignature} from './completion-templates.mjs';
+import {formatFor,textCss,blockTextStyles,blockTextLines,sectionSpaceOrder,referenceStructure,referenceValue} from './format.mjs';
+import {completionSignature,completionPointTemplates} from './completion-templates.mjs';
 import {photoUploadBlocks} from './photo-layout.mjs';
-export const SPACES = ['현관', '거실', '주방', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실'];
+export const SPACES = ['현관', '거실', '주방', '보조주방', '주방베란다', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실', '작은방3', '파우더룸', '거실베란다', '2층', '기타'];
+export function spaceLabel(space){return ({파우더룸:'안방 파우더룸',거실베란다:'거실 베란다'})[space]||space;}
 export const PHASES = ['site', 'compare', 'assets', 'write', 'publish'];
 const REFERENCE_URLS = ['224391021069','224386470907','224386525358','224385704870','224385749437'].map(id => `https://blog.naver.com/lemonhouse8/${id}`);
 export const DEFAULT_STYLE = {
@@ -11,21 +12,32 @@ export const DEFAULT_STYLE = {
 };
 export const DEFAULT_SETTINGS = {blogId: '', brand: '레몬하우스', phone: '1644-0402', model: '', analysisModel: '', photoEdge: 1024};
 function emptySite() { return {name:'', region:'', type:'', supplyArea:'', exclusiveArea:'', sourceUrl:''}; }
-export const CASE_SPACES=[...SPACES,'복도','알파룸','드레스룸'];
+export const CASE_SPACES=[...SPACES,'복도','알파룸','드레스룸','안방베란다'];
 export const DEFAULT_CASE_STYLE={name:'레몬하우스 시공사례',referenceUrls:['224418954497','224408307594','224406227010','224405900018','224403861966'].map(id=>`https://blog.naver.com/link_design_studio/${id}`),status:'reference',rules:'실제로 시공한 한 현장의 시공사례를 소개합니다. 편집한 표지 → 콘셉트를 소개하는 인용구 → 브랜드 인사와 현장 소개 → INTERIOR PLAN 도면 이미지 → 공간별 영문·한글 제목 인용구 → 사진 묶음 → 확인된 시공 설명 → 마무리 → 구분선 → 브랜드·문의 연락처 순서입니다. 본문은 왼쪽 정렬, 나눔바른고딕 15px, 공간 제목은 밑줄형 인용구로 영문 나눔명조 19px와 한글 나눔고딕 13px를 사용합니다. 사진이 있는 공간만 쓰며 실제 시공 요소와 디자인 효과를 설명하고 다양한 제안 어미를 섞습니다. 참고글의 현장명·오타·편집 메모는 복사하지 않습니다.'};
-export const COMPLETION_SPACES=['현관','복도','거실','주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','작은방3','공용욕실','알파룸','베란다'];
-export const DEFAULT_COMPLETION_STYLE={name:'레몬하우스 카페 마감',referenceUrls:['18233','18192'].map(id=>`https://cafe.naver.com/fmbsno1/${id}`),status:'reference',rules:'네이버 카페에 실제 공사 완료 현장을 소개하는 마감 게시글입니다. 표지 → 브랜드 인사와 현장 소개 → 확인한 현장 지도 → line5 구분선 → 공사범위 → 가운데 모서리형 BEFORE & AFTER 인용구와 시공 전후 이미지 → 공간별 왼쪽 세로선 인용구 제목 → 공간 포인트 이미지와 번호 사이 빈 줄 한 줄을 둔 시공 포인트 설명 → 공간별 첫 현장 사진 1장 단독 → 공간 종합 설명 → 나머지 현장 사진 슬라이드 → 왼쪽 마무리 인사 → 가운데 주황색 굵은 19px 연락처 → line5 구분선 → 현장 동영상과 제목 → 제공된 마무리 자료 순서입니다. 본문은 왼쪽 정렬 15px 검정, 공간 제목은 왼쪽 정렬 19px 세로선 인용구, 구분선은 line5를 사용합니다. 확인된 시공내역만 사용하고 각 공간 설명은 최대 7줄입니다. 다양한 자연스러운 권유와 설명 어미를 섞습니다. 사진이 있는 공간만 쓰고 다른 현장명·주소·오타는 복사하지 않습니다.'};
+export const COMPLETION_SPACES=['현관','복도','거실','거실베란다','주방','보조주방','주방베란다','안방','파우더룸','드레스룸','안방베란다','안방욕실','작은방1','작은방2','작은방3','공용욕실','알파룸','베란다','2층','기타'];
+export const DEFAULT_COMPLETION_STYLE={name:'레몬하우스 카페 마감',referenceUrls:['18233','18192'].map(id=>`https://cafe.naver.com/fmbsno1/${id}`),status:'reference',rules:'네이버 카페에 실제 공사 완료 현장을 소개하는 마감 게시글입니다. 표지 → 브랜드 인사와 현장 소개 → 확인한 현장 지도 → line5 구분선 → 공사범위 → 가운데 모서리형 BEFORE & AFTER 인용구와 시공 전후 이미지 → 공간별 왼쪽 세로선 인용구 제목 → 공간 포인트 이미지와 번호 사이 빈 줄 한 줄을 둔 시공 포인트 설명 → 공간별 첫 현장 사진 1장 단독 → 공간 종합 설명 → 나머지 현장 사진 슬라이드 → 왼쪽 마무리 인사 → 가운데 주황색 굵은 19px 연락처 → line5 구분선 → 현장 동영상과 제목 → 제공된 마무리 자료 순서입니다. 본문은 왼쪽 정렬 15px 검정, 공간 제목은 왼쪽 정렬 19px 세로선 인용구, 구분선은 line5를 사용합니다. 공사범위의 모든 시공내역을 먼저 공간별로 분류하고 작업·효과·자연스러운 제안 순서로 설명합니다. 작업이 많으면 누락 없이 분량을 늘립니다. 다양한 자연스러운 권유와 설명 어미를 섞습니다. 사진이 있는 공간만 쓰고 다른 현장명·주소·오타는 복사하지 않습니다. 인사말은 친근한 브랜드 인사·현장의 매력과 콘셉트 소개·함께 구경하자는 초대로 작성하고 세부 공정·자재·전체 수량은 공사범위 뒤의 본문에서 설명합니다.'};
 export function styleKey(postType){return postType==='completion'?'completion':postType==='case'?'case':'main';}
 export function postLabel(project){return project.postType==='completion'?'마감':project.postType==='case'?'시공사례':'추천글';}
 export function postSite(project){return project.postType&&project.postType!=='recommendation'?project.original:project.target;}
 export function postSpaces(project){return project.postType==='completion'?COMPLETION_SPACES:project.postType==='case'?CASE_SPACES:SPACES;}
-export function photoSpaces(project){return [...postSpaces(project),...(project.postType==='case'?['표지','도면']:project.postType==='completion'?['표지','공사범위','시공전후','마무리']:[])];}
+export function postSpaceOrder(project,profile=formatFor(project)){
+  const spaces=postSpaces(project);return sectionSpaceOrder(profile,spaces).filter(s=>spaces.includes(s));
+}
+export function photoSpaces(project){return [...postSpaceOrder(project),...(project.postType==='case'?['표지','도면']:project.postType==='completion'?['표지','공사범위','시공전후','마무리']:[])];}
 export function publicationCategory(project){return project.postType==='case'?project.category||'':'추천 인테리어';}
 export function newProject(id = crypto.randomUUID(),postType='recommendation') {
   const now = new Date().toISOString();
   return {id, revision:0,postType,...(postType==='case'?{category:''}:{}),...(postType==='completion'?{cafeTargetUrl:'https://cafe.naver.com/fmbsno1',cafeBoardUrl:'',completionTemplates:[['표지','cover'],['공사범위','scope'],['시공 전후','beforeAfter'],['공간별 포인트','space'],['마무리','closing']].map(([name,position],i)=>({id:id+'-template-'+i,name,position,space:'거실',templateId:'',text:'',photoIds:[]}))}:{}), name:`새 ${postLabel({postType})}`, phase:'site', original:emptySite(), target:emptySite(), manualWork:'', cafeUrl:'', sourceText:'', concept:'', keywords:[{term:'',min:7,max:8}], title:'', blocks:[], tags:[], facts:[], comparison:null, questionQuote:'none',publishMode:'review',visibility:'public', scheduleAt:'', updatedAt:now, createdAt:now, draftStatus:'empty', generationWarnings:[]};
 }
 export function bodyText(project) { return project.blocks.filter(b => ['text','heading','quote'].includes(b.kind)).map(b => b.text || '').join('\n'); }
+export function moveDraftBlocks(blocks,sourceId,targetId,side,selectedIds=[]){
+  if(!['before','after'].includes(side)||!blocks.some(b=>b.id===sourceId)||!blocks.some(b=>b.id===targetId))return blocks;
+  const selected=new Set(selectedIds.includes(sourceId)?selectedIds:[sourceId]);
+  if(selected.has(targetId))return blocks;
+  const moving=blocks.filter(b=>selected.has(b.id)),remaining=blocks.filter(b=>!selected.has(b.id));
+  remaining.splice(remaining.findIndex(b=>b.id===targetId)+(side==='after'?1:0),0,...moving);
+  return remaining.every((b,i)=>b===blocks[i])?blocks:remaining;
+}
 function countOccurrences(text, term) {
   if (!term.trim()) return 0;
   let count=0, pos=0;
@@ -55,31 +67,33 @@ export function validateNaverUrl(raw, kind='any') {
 }
 export function photoGroups(assets,coverId='',templatePhotoId='') {
   const groups=[]; const byId=new Map();
-  const photo=assets.find(a=>a.id===templatePhotoId&&a.role==='photo'&&!a.excluded&&!a.templateOutput),scope=assets.find(a=>a.templateOutput==='scope'&&a.role==='photo'&&!a.excluded);
-  for (const asset of assets.filter(a=>a.role==='photo'&&!a.excluded&&a.id!==coverId).sort((a,b)=>Number(!!b.templateSlotId)-Number(!!a.templateSlotId)||a.order-b.order)) {
-    if(photo&&scope&&asset.id===scope.id)continue;
-    const key=asset.group?`${asset.space}:${asset.group}`:asset.id;
+  for (const asset of assets.filter(a=>a.role==='photo'&&!a.excluded&&a.id!==coverId&&a.id!==templatePhotoId).sort((a,b)=>Number(b.templateOutput==='scope')-Number(a.templateOutput==='scope')||Number(!!b.templateSlotId)-Number(!!a.templateSlotId)||a.order-b.order)) {
+    const key=asset.group&&asset.templateOutput!=='scope'?`${asset.space}:${asset.group}`:asset.id;
     if(!byId.has(key)){ const g={id:key,space:asset.space,assets:[]};groups.push(g);byId.set(key,g); }
     byId.get(key).assets.push(asset);
   }
-  return photo&&scope?[{id:'interior-plan',space:'도면',assets:[photo,scope]},...groups]:groups;
+  return groups;
 }
-export function isPlanCollage(project,block,assets){return project.postType==='case'&&block.kind==='photos'&&block.space==='도면'&&block.assetIds?.length===2&&block.assetIds[0]===project.templatePhotoId&&assets.some(a=>a.id===block.assetIds[1]&&a.templateOutput==='scope'&&!a.excluded);}
 export function photoLayoutBlocks(project,assets,createId=()=>crypto.randomUUID()){
   if(project.postType==='completion')return completionPhotoLayout(project,assets,createId);
   const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:''),format=formatFor(project),blocks=[],used=new Set();
   const add=space=>{if(used.has(space))return;used.add(space);groups.filter(g=>g.space===space).forEach(g=>blocks.push({id:createId(),kind:'photos',space,assetIds:g.assets.map(a=>a.id)}));};
   if(project.coverAssetId)blocks.push({id:createId(),kind:'photos',space:'표지',assetIds:[project.coverAssetId]});else add('표지');
   for(const b of project.blocks.filter(b=>b.kind!=='photos')){blocks.push(b);if(project.postType==='case'&&b.text==='INTERIOR PLAN')add('도면');if(b.space&&['heading','quote'].includes(b.kind))add(b.space);}
-  const newBlocks=[];
-  for(const space of [...new Set([...referenceSpaceOrder(format),...postSpaces(project)])])if(!used.has(space)&&groups.some(g=>g.space===space)){
-    newBlocks.push({id:createId(),kind:format.headingKind==='quote'?'quote':'heading',variant:format.headingKind==='quote'?referenceValue(format.headingVariants,space)||format.headingQuoteVariant||format.quoteVariant:undefined,space,text:project.postType==='case'?`${({현관:'ENTRANCE',거실:'LIVING ROOM',주방:'KITCHEN',안방욕실:'BATH',공용욕실:'BATH',알파룸:'ALPHA ROOM',복도:'HALLWAY',드레스룸:'DRESS ROOM'})[space]||'ROOM'}\n${space} 인테리어`:space});
+  const order=postSpaceOrder(project,format);
+  for(const space of order)if(!used.has(space)&&groups.some(g=>g.space===space)){
+    const newBlocks=[];
+    newBlocks.push({id:createId(),kind:format.headingKind==='quote'?'quote':'heading',variant:format.headingKind==='quote'?referenceValue(format.headingVariants,space)||format.headingQuoteVariant||format.quoteVariant:undefined,space,text:project.postType==='case'?`${({현관:'ENTRANCE',거실:'LIVING ROOM',주방:'KITCHEN',보조주방:'SECONDARY KITCHEN',주방베란다:'KITCHEN BALCONY',안방욕실:'BATH',공용욕실:'BATH',알파룸:'ALPHA ROOM',복도:'HALLWAY',드레스룸:'DRESS ROOM'})[space]||'ROOM'}\n${spaceLabel(space)} 인테리어`:spaceLabel(space)});
     for(const g of groups.filter(g=>g.space===space))newBlocks.push({id:createId(),kind:'photos',space,assetIds:g.assets.map(a=>a.id)});
     newBlocks.push({id:createId(),kind:'text',space,text:''});
+    insertSpaceSection(blocks,newBlocks,order);
   }
-  const last=blocks.reduce((last,b,i)=>b.space&&['heading','quote'].includes(b.kind)?i:last,-1),outro=blocks.findIndex((b,i)=>i>last&&b.kind==='divider');
-  blocks.splice(outro<0?blocks.length:outro,0,...newBlocks);
-  return postVideoBlocks(project,assets,referenceStructure({...project,blocks},format),createId);
+  return caseBodyBlocks({...project,blocks:postVideoBlocks(project,assets,referenceStructure({...project,blocks},format),createId)},assets);
+}
+function insertSpaceSection(blocks,section,order){
+  const next=blocks.findIndex(b=>['heading','quote'].includes(b.kind)&&order.indexOf(b.space)>order.indexOf(section[0].space));
+  const last=blocks.reduce((last,b,i)=>order.includes(b.space)?i:last,-1),closing=blocks.findIndex(b=>['closing','outro','contact'].includes(b.formatRole));
+  blocks.splice(next>=0?next:last>=0?last+1:closing>=0?closing:blocks.length,0,...section);
 }
 function completionSpacePhotos(groups){
   const points=groups.filter(g=>g.assets.some(a=>a.templateSlotId)),all=groups.filter(g=>!points.includes(g)).flatMap(g=>g.assets),space=groups[0]?.space;
@@ -91,7 +105,7 @@ export function completionPointSpaces(project){
   return [...new Set((project.completionTemplates||[]).filter(s=>s.position==='space'&&s.enabled!==false&&s.templateId).map(s=>s.space))];
 }
 export function completionBlocks(project,assets,result,profile,createId=()=>crypto.randomUUID()){
-  const groups=photoGroups(assets,project.coverAssetId),pointSpaces=completionPointSpaces(project),blocks=[];
+  const groups=photoGroups(assets,project.coverAssetId),pointSpaces=completionPointSpaces(project),pointTemplates=completionPointTemplates(project,assets),blocks=[];
   const add=block=>blocks.push({id:createId(),...block});
   const photos=(g,layout)=>add({kind:'photos',space:g.space,assetIds:g.assets.map(a=>a.id),...(g.assets.length>1?{layout:layout==='slide'?'slide':'collage'}:{})});
   const cover=assets.find(a=>a.id===project.coverAssetId&&!a.excluded);
@@ -102,18 +116,20 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
     const selected=groups.filter(g=>g.space===space);
     if(space==='시공전후'&&selected.length)add({kind:'quote',text:'BEFORE & AFTER',variant:profile.quoteVariant});
     selected.forEach(g=>photos(g));
+    if(space==='공사범위'&&result.commonWork?.trim())add({kind:'text',space:'공통',text:result.commonWork.trim()});
   }
   const questions=result.questionAnswers?.length?result.questionAnswers:result.questionAnswer?[result.questionAnswer]:[];let questionIndex=0,written=0;
   const addQuestion=()=>{const q=questions[questionIndex++];if(q){add({kind:'quote',text:q.question,variant:profile.quoteVariant});add({kind:'text',text:q.answer});}};
   const total=result.sections.filter(s=>groups.some(g=>g.space===s.space)).length;
-  for(const space of [...new Set([...referenceSpaceOrder(profile),...COMPLETION_SPACES])]){
+  for(const space of postSpaceOrder(project,profile)){
     const selected=groups.filter(g=>g.space===space);if(!selected.length)continue;
     const section=result.sections.find(s=>s.space===space);if(!section?.text.trim())throw new Error(space+' 설명이 비어 있습니다. 기존 원고는 보존했습니다.');
-    add({kind:'quote',space,text:({파우더룸:'안방 파우더룸',드레스룸:'안방 드레스룸',주방베란다:'주방 베란다',안방베란다:'안방 베란다',안방욕실:'안방 욕실',공용욕실:'공용 욕실',작은방1:'작은방 1',작은방2:'작은방 2',작은방3:'작은방 3'})[space]||space,variant:referenceValue(profile.headingVariants,space)||profile.headingQuoteVariant});
+    add({kind:'quote',space,text:({파우더룸:'안방 파우더룸',드레스룸:'안방 드레스룸',주방베란다:'주방 베란다',안방베란다:'안방 베란다',안방욕실:'안방 욕실',공용욕실:'공용 욕실',작은방1:'작은방 1',작은방2:'작은방 2',작은방3:'작은방 3'})[space]||spaceLabel(space),variant:referenceValue(profile.headingVariants,space)||profile.headingQuoteVariant});
     const {points,representative,slides}=completionSpacePhotos(selected);
     points.forEach(g=>photos(g));
+    const expectedPoints=pointTemplates.filter(t=>t.space===space).flatMap(t=>t.points);
     for(const [i,p]of (pointSpaces.includes(space)?section.points||[]:[]).entries()){
-      add({kind:'text',formatRole:'point',space,text:(i+1)+'. '+p.title.replace(/^\s*\d+[.)]\s*/, '')});
+      add({kind:'text',formatRole:'point',space,text:(expectedPoints[i]?.number??i+1)+'. '+(expectedPoints[i]?.title||p.title.replace(/^\s*\d+[.)]\s*/, ''))});
       add({kind:'text',formatRole:'pointBody',space,text:p.text});
     }
     representative.forEach(g=>photos(g,g.layout));
@@ -149,12 +165,13 @@ function completionPhotoLayout(project,assets,createId){
   const selected=space=>groups.filter(g=>g.space===space);
   const cover=assets.find(a=>a.id===project.coverAssetId&&!a.excluded);
   result.push(...(cover?[photo({space:'표지',assets:[cover]})]:selected('표지').map(photo)));
-  const plans=selected('공사범위').map(photo),before=selected('시공전후').map(photo);let plansAdded=false;
-  const addPlans=()=>{if(plansAdded)return;plansAdded=true;result.push(...plans);if(before.length)result.push({id:createId(),kind:'quote',text:'BEFORE & AFTER',variant:'quotation_corner'},...before);};
+  const plans=selected('공사범위').map(photo),before=selected('시공전후').map(photo),common=blocks.filter(b=>b.kind==='text'&&b.space==='공통');let plansAdded=false;
+  const addPlans=()=>{if(plansAdded)return;plansAdded=true;result.push(...plans,...common);if(before.length)result.push({id:createId(),kind:'quote',text:'BEFORE & AFTER',variant:'quotation_corner'},...before);};
   for(const [i,block]of blocks.entries()){
+    if(block.kind==='text'&&block.space==='공통'){addPlans();continue;}
     if(block.text==='BEFORE & AFTER'&&block.kind==='quote'){addPlans();continue;}
     if(block.formatRole==='closing'){
-      addPlans();for(const space of [...new Set(groups.map(g=>g.space))].filter(s=>COMPLETION_SPACES.includes(s)&&!used.has(s))){const p=completionSpacePhotos(selected(space));used.add(space);result.push({id:createId(),kind:'quote',space,text:space,variant:'quotation_line'},...p.points.map(photo),...p.representative.map(photo),{id:createId(),kind:'text',space,text:''},...p.slides.map(photo));}
+      addPlans();for(const space of postSpaceOrder(project).filter(s=>selected(s).length&&!used.has(s))){const p=completionSpacePhotos(selected(space));used.add(space);insertSpaceSection(result,[{id:createId(),kind:'quote',space,text:spaceLabel(space),variant:'quotation_line'},...p.points.map(photo),...p.representative.map(photo),{id:createId(),kind:'text',space,text:''},...p.slides.map(photo)],postSpaceOrder(project));}
     }
     if(block.space&&['quote','heading'].includes(block.kind))addPlans();
     result.push(block);
@@ -173,6 +190,32 @@ export function missingSpaceDescriptions(project,assets){
     return start<0||!project.blocks.slice(start,end<0?undefined:end).some(b=>b.kind==='text'&&b.space===space&&b.text?.trim());
   });
 }
+export function caseBodyBlocks(project,assets=[]){
+  if(project.postType!=='case'||!project.templatePhotoId)return project.blocks;
+  const source=assets.find(a=>a.id===project.templatePhotoId&&['photo','template-photo'].includes(a.role)&&!a.excluded&&a.status==='ready');
+  const scope=source&&assets.find(a=>a.templateOutput==='scope'&&!a.excluded&&a.status==='ready');
+  let paired=false;
+  return project.blocks.flatMap(block=>{
+    if(block.kind!=='photos'||!block.assetIds)return [block];
+    const pair=!paired&&scope&&block.space==='도면'&&block.assetIds.includes(scope.id);
+    if(!pair&&!block.assetIds.includes(project.templatePhotoId))return [block];
+    const assetIds=block.assetIds.filter(id=>id!==project.templatePhotoId);
+    if(pair){
+      paired=true;
+      const rest=assetIds.filter(id=>id!==scope.id);
+      return [{...block,layout:'collage',assetIds:[source.id,scope.id]},...(rest.length?[{...block,id:`${block.id}-rest`,assetIds:rest}]:[])];
+    }
+    return assetIds.length?[{...block,assetIds}]:[];
+  });
+}
+export function isPlanCollage(project,block){
+  return project.postType==='case'&&block.kind==='photos'&&block.space==='도면'&&block.layout==='collage'&&block.assetIds?.length===2&&block.assetIds[0]===project.templatePhotoId;
+}
+export function publicationBlocks(project,assets=[]){
+  const body=caseBodyBlocks(project,assets);
+  const blocks=project.postType==='case'?body.filter(b=>b.kind!=='text'||!b.space||b.text?.trim()):body;
+  return photoUploadBlocks(blocks);
+}
 export function draftWarnings(project,assets) {
   const warnings=[];
   if(project.postType==='completion')for(const slot of project.completionTemplates||[]){if(slot.enabled!==false&&slot.templateId&&!assets.some(a=>a.templateSlotId===slot.id&&!a.excluded&&!a.templateIncomplete?.length&&a.templateSignature===completionSignature(slot,assets)))warnings.push(`${slot.name} 변경 내용을 적용하고 사진칸을 채워 주세요.`);}
@@ -184,14 +227,15 @@ export function draftWarnings(project,assets) {
   if(!project.title.trim()||!bodyText(project).trim())warnings.push('제목과 본문이 필요합니다.');
   if(project.coverAssetId&&!assets.some(a=>a.id===project.coverAssetId&&a.role==='photo'&&!a.excluded))warnings.push('표지로 선택한 사진을 확인하거나 다른 사진을 선택해 주세요.');
   const byId=new Map(assets.map(a=>[a.id,a])); const seen=new Set();
-  for(const block of project.blocks.filter(b=>b.kind==='photos')){
+  const photoBlocks=caseBodyBlocks(project).filter(b=>b.kind==='photos');
+  for(const block of photoBlocks){
     if(!block.assetIds?.length)warnings.push('빈 사진 묶음이 있습니다.');
-    for(const id of block.assetIds||[]){const a=byId.get(id);if(!a||a.role!=='photo'||a.excluded)warnings.push('본문에 사용할 수 없는 사진이 있습니다.');if(isPlanCollage(project,block,assets)&&id===project.templatePhotoId)continue;if(seen.has(id))warnings.push('같은 사진이 본문에 중복 배치되어 있습니다.');seen.add(id);}
+    for(const id of block.assetIds||[]){const a=byId.get(id);if(!a||a.role!=='photo'||a.excluded)warnings.push('본문에 사용할 수 없는 사진이 있습니다.');if(seen.has(id))warnings.push('같은 사진이 본문에 중복 배치되어 있습니다.');seen.add(id);}
   }
-  const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'');const order=[...new Set([...(project.postType==='case'?['도면']:project.postType==='completion'?[...(!project.coverAssetId?['표지']:[]),'공사범위','시공전후']:[]),...referenceSpaceOrder(formatFor(project)),...postSpaces(project),...(project.postType==='completion'?['마무리']:[])])];const intended=[...(project.coverAssetId?[project.coverAssetId]:[]),...order.flatMap(space=>groups.filter(g=>g.space===space).map(g=>g.assets.map(a=>a.id).join(',')))];
-  const actual=project.blocks.filter(b=>b.kind==='photos').map(b=>(b.assetIds||[]).join(','));
+  const groups=photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'');const order=[...(project.postType==='case'?['도면']:project.postType==='completion'?[...(!project.coverAssetId?['표지']:[]),'공사범위','시공전후']:[]),...postSpaceOrder(project),...(project.postType==='completion'?['마무리']:[])];const intended=[...(project.coverAssetId?[project.coverAssetId]:[]),...order.flatMap(space=>groups.filter(g=>g.space===space).map(g=>g.assets.map(a=>a.id).join(',')))];
+  const actual=photoBlocks.map(b=>(b.assetIds||[]).join(','));
   if(JSON.stringify(project.postType==='completion'?intended.flatMap(g=>g.split(',')):intended)!==JSON.stringify(project.postType==='completion'?actual.flatMap(g=>g.split(',')):actual))warnings.push('변경한 사진 순서와 묶음을 원고에 반영해 주세요.');
-  warnings.push(...missingSpaceDescriptions(project,assets).map(space=>`${space} 공간 설명을 작성해 주세요.`));
+  if(project.postType!=='case')warnings.push(...missingSpaceDescriptions(project,assets).map(space=>`${space} 공간 설명을 작성해 주세요.`));
   if(assets.some(a=>a.role==='photo'&&!a.excluded&&a.status!=='ready'))warnings.push('사용할 사진의 처리가 끝나지 않았습니다.');
   if(unresolvedConstructionFacts(project,assets).length)warnings.push('시공내역에 확인이 필요한 항목이 있습니다.');
   if(needsSourceCheck(project,assets)&&!sourceReviewCurrent(project,assets))warnings.push('공사범위 파일과 마감글의 차이를 다시 확인해 주세요.');
@@ -211,12 +255,12 @@ export function paragraphHtml(block,format) {
 export function exportHtml(project, assets) {
   const byId = new Map(assets.map(a=>[a.id,a]));
   const format=formatFor(project);
-  const content=photoUploadBlocks(project.blocks),blocks=content.map((b,i)=>{
+  const content=publicationBlocks(project,assets),blocks=content.map((b,i)=>{
     if(b.kind==='map')return `<p style="margin:24px 0">현장 지도: ${escapeHtml(b.text)}</p>`;
     if(b.kind==='video'){const a=byId.get(b.assetIds?.[0]);return a?`<figure><video controls preload="metadata" src="${escapeHtml(a.originalUrl)}" style="width:100%"></video><figcaption>${escapeHtml(b.text)}</figcaption></figure>`:'';}
     const pointGap=project.postType==='completion'&&b.formatRole==='point'&&content[i-1]?.formatRole==='pointBody';
     if(b.kind==='divider'){const variant=b.variant||format.dividerVariant,sprites={line3:'width:238px;height:9px;background-position:-102px -350px',line4:'width:192px;height:23px;background-position:-92px -306px',line6:'width:44px;height:44px;background-position:-422px -46px'};return `<hr data-naver-variant="${variant}" style="margin:36px auto;border:0;${sprites[variant]?`background-image:url(https://editor-static.pstatic.net/v/basic/1.78.1/img/se-sp-viewer.ee5afa38.png);background-size:466px 418px;${sprites[variant]}`:'width:100%;height:1px;background:#ddd'}"/>`;}
-    if(b.kind==='photos')return `<div style="display:flex;gap:4px;margin:20px 0;${b.layout==='slide'?'overflow-x:auto;scroll-snap-type:x mandatory':''}">${(b.assetIds||[]).map(id=>{const a=byId.get(id);return a?`<img src="${escapeHtml(a.originalUrl)}" alt="${escapeHtml(a.space)}" style="width:${b.layout==='slide'?100:100/(b.assetIds?.length||1)}%;${b.layout==='slide'?'flex:0 0 100%;scroll-snap-align:start;':''}${isPlanCollage(project,b,assets)?'aspect-ratio:1;object-fit:cover':'object-fit:contain'}"/>`:'';}).join('')}</div>`;
+    if(b.kind==='photos')return `<div style="display:flex;gap:4px;margin:20px 0;${b.layout==='slide'?'overflow-x:auto;scroll-snap-type:x mandatory':''}">${(b.assetIds||[]).map(id=>{const a=byId.get(id);return a?`<img src="${escapeHtml(a.originalUrl)}" alt="${escapeHtml(a.space)}" style="width:${b.layout==='slide'?100:100/(b.assetIds?.length||1)}%;${b.layout==='slide'?'flex:0 0 100%;scroll-snap-align:start;':''}${isPlanCollage(project,b)?'aspect-ratio:1/1;':''}object-fit:${isPlanCollage(project,b)&&id===project.templatePhotoId?'cover':'contain'}"/>`:'';}).join('')}</div>`;
     const paragraph=paragraphHtml(b,format),style=blockTextStyles(b,format)[0];
     if(b.kind==='quote'){const variant=b.variant||format.quoteVariant;return `<blockquote data-naver-variant="${variant}" style="position:relative;max-width:${variant==='quotation_line'?'none':'460px'};text-align:${style.align};border:0;margin:36px auto;padding:${variant==='quotation_underline'?'0 0 18px;border-bottom:1px solid #333':variant==='quotation_line'?'10px 20px;border-left:6px solid #515151':'38px 36px'};${textCss(style)}">${variant==='quotation_corner'?'<span aria-hidden="true" style="position:absolute;top:0;left:0;width:26px;height:26px;border-top:6px solid #4a4a4a;border-left:6px solid #4a4a4a"></span><span aria-hidden="true" style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-bottom:6px solid #4a4a4a;border-right:6px solid #4a4a4a"></span>':''}${paragraph}</blockquote>`;}
     return (pointGap?'<p aria-hidden="true">&nbsp;</p>':'')+paragraph;
