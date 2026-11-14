@@ -32,7 +32,9 @@ test('m2·m²·㎡·제곱미터·PY 등 표기 변형을 보완하며 임의로
 });
 
 test('인용구·포인트·질문 답변·마무리·태그도 면적 표기 검사를 통과해야 한다',async t=>{
+ const confirmedPlan={signature:'area-fixture',items:[{id:'work-1',space:'거실',item:'확인된 간접조명 설치',sourceIds:['manual'],photoIds:[]}],warnings:[]};
  const {store,p,ai,result}=await fixture(t,'completion');store.updateProject(p.id,{questionQuote:'end',questionQuoteCount:1,completionTemplates:[{id:'point',position:'space',space:'거실',templateId:'psd',text:'',photoIds:[]}]});
+ ai.planWork=async()=>confirmedPlan;ai.checkWork=async()=>({checks:[],issues:[],warnings:[],missing:[]});
  const base=()=>({...result(),sections:[{...result().sections[0],points:[{title:'조명',text:'간접조명으로 은은한 분위기를 더합니다.'}]}],questionAnswers:[{question:'어떤 조명이 어울리나요?',answer:'공간의 마감과 조명 밝기를 함께 살펴보세요.'}]});
  for(const set of [r=>r.sections[0].text='103.3㎡ 공간입니다.',r=>r.sections[0].points[0].title='103.3m² 포인트',r=>r.sections[0].points[0].text='103.3m2 공간의 조명입니다.',r=>r.questionAnswers[0].question='103.3㎡에는 어떤 조명이 어울리나요?',r=>r.questionAnswers[0].answer='103.3m2에 맞춰 조명을 선택합니다.',r=>r.outro='103.3㎡ 현장을 살펴보았습니다.',r=>r.tags=['103.3㎡']]){let calls=0;ai.call=async()=>{const r=base();if(++calls===1)set(r);return r;};await ai.generate(p.id,()=>{});assert.equal(calls,2);}
  const c=await fixture(t,'case');let calls=0;c.ai.call=async()=>++calls===1?{...c.result(),summary:'103.3㎡를 살린 인테리어'}:c.result();await c.ai.generate(c.p.id,()=>{});assert.equal(calls,2);

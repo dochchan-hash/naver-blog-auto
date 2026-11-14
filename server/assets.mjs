@@ -8,6 +8,7 @@ import Busboy from 'busboy';
 import sharp from 'sharp';
 import {readTemplate} from './templates.mjs';
 import {compileCompletionTemplate} from './completion-templates.mjs';
+import {excelMimes,spreadsheetMime,spreadsheetPages} from './spreadsheets.mjs';
 import {createCanvas,DOMMatrix,ImageData,Path2D} from '@napi-rs/canvas';
 globalThis.DOMMatrix ||= DOMMatrix;globalThis.ImageData ||= ImageData;globalThis.Path2D ||= Path2D;
 const fileError=message=>Object.assign(new Error(message),{status:400});
@@ -45,7 +46,7 @@ export class Assets {
   }
   async upload(req,projectId,role) {
     if(!this.store.get('project',projectId))throw fileError('원고를 먼저 선택해 주세요.');
-    if(!['photo','template-photo','construction','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
+    if(!['photo','template-photo','construction','material-selection','floorplan-original','floorplan-target','template','video'].includes(role))throw fileError('첨부 영역을 확인해 주세요.');
     if(role==='template-photo'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('템플릿용 사진은 시공사례나 마감에 첨부해 주세요.');
     if(role==='template'&&!['case','completion'].includes(this.store.get('project',projectId).postType))throw fileError('PSD 템플릿은 시공사례 또는 마감에 첨부해 주세요.');
     const id=randomUUID(),folder=this.resolve(id),templateLimit=this.store.get('project',projectId).postType==='completion'?256:64;await fsp.mkdir(folder,{mode:0o700});
@@ -64,13 +65,14 @@ export class Assets {
         bb.on('error',reject);req.on('aborted',()=>reject(fileError('전송이 중단되었습니다. 다시 첨부해 주세요.')));
         bb.on('close',async()=>{await work;if(error)return reject(error);if(!seen||!bytes)return reject(fileError('빈 파일은 첨부할 수 없습니다.'));resolve();});req.pipe(bb);
       });
-      const mime=detectMime(head);
+      const mime=detectMime(head)||await spreadsheetMime(head,filename,dest);
       if((role==='video')!==!!mime?.startsWith('video/'))throw fileError(role==='video'?'MP4 또는 MOV 동영상을 선택해 주세요.':'동영상은 하단 동영상 영역에 첨부해 주세요.');
-      if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD 파일을 선택해 주세요.');
+      if(!mime)throw fileError('JPG, PNG, WEBP 사진 또는 PDF, PSD, XLS·XLSX 엑셀 파일을 선택해 주세요.');
       if((role==='template')!==(mime==='image/vnd.adobe.photoshop'))throw fileError(role==='template'?'PSD 템플릿 파일을 선택해 주세요.':'PSD는 시공사례 템플릿 영역에 첨부해 주세요.');
-      if(role==='construction'&&!['application/pdf','image/jpeg'].includes(mime))throw fileError('공사시공내역은 PDF 또는 JPG 파일을 선택해 주세요.');
+      if(['construction','material-selection'].includes(role)&&!['application/pdf','image/jpeg',...excelMimes].includes(mime))throw fileError('공사범위·자재선정지는 PDF, JPG 또는 XLS·XLSX 엑셀 파일을 선택해 주세요.');
+      if(excelMimes.includes(mime)&&!['construction','material-selection'].includes(role))throw fileError('엑셀은 공사범위 또는 자재선정지 영역에 첨부해 주세요.');
       if(['photo','template-photo'].includes(role)&&mime==='application/pdf')throw fileError('현장 사진 영역에는 이미지 파일을 넣어 주세요.');
-      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd','video/mp4':'mp4','video/quicktime':'mov'}[mime];
+      const extension={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','application/pdf':'pdf','image/vnd.adobe.photoshop':'psd','video/mp4':'mp4','video/quicktime':'mov',[excelMimes[0]]:'xls',[excelMimes[1]]:'xlsx'}[mime];
       const originalPath=`${id}/original.${extension}`;await fsp.rename(dest,this.resolve(originalPath));
       const existing=this.store.assets(projectId).filter(a=>a.role==='photo');
       const asset={id,projectId,role,filename,mime,bytes,hash,originalPath,status:'processing',space:'미분류',group:'',order:existing.length,excluded:false};
@@ -100,7 +102,8 @@ export class Assets {
   async process(id) {
     const asset=this.store.get('asset',id);if(!asset)return;
     try {
-      if(asset.mime==='application/pdf')await this.processPdf(asset);
+      if(excelMimes.includes(asset.mime))Object.assign(asset,{pages:await spreadsheetPages(this.resolve(asset.originalPath),asset.mime),status:'ready'});
+      else if(asset.mime==='application/pdf')await this.processPdf(asset);
       else {
         const original=this.resolve(asset.originalPath);
         const edge=['photo','template-photo'].includes(asset.role)?this.store.get('settings','main').photoEdge:1800;

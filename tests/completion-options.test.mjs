@@ -36,6 +36,7 @@ test('실제 원고 생성 경로에 선택된 공간만 전달하고 AI가 반�
  const p=store.createProject('completion');store.updateProject(p.id,{original:{...p.original,name:'테스트 현장'},keywords:[],completionTemplates:[slot('living','거실'),slot('kitchen','주방',false)]});
  store.put('style','completion',{rules:'카페 마감의 서식을 사용합니다.',status:'edited',referenceUrls:[],formatProfile:COMPLETION_FORMAT});for(const photo of photos)store.put('asset',photo.id,{...photo,projectId:p.id});
  const ai=new AI(store,{},{},{});ai.analyzeMaterials=async()=>{};ai.call=async(instructions,content)=>{assert.match(instructions,/pointSpaces에 없는 공간은 points를 반드시 빈 배열/);assert.deepEqual(JSON.parse(content[0].text).pointSpaces,['거실']);return structuredClone(result);};
+ ai.planWork=async()=>({signature:'points-fixture',items:['거실','주방'].map((space,i)=>({id:'work-'+i,space,item:'확인된 시공',sourceIds:['manual'],photoIds:[]})),warnings:[]});ai.checkWork=async()=>({checks:[],issues:[],warnings:[],missing:[]});
  const {project}=await ai.generate(p.id,()=>{});assert.deepEqual(project.blocks.filter(b=>b.formatRole==='point').map(b=>b.space),['거실']);assert.equal(project.blocks.find(b=>b.kind==='text'&&b.space==='주방'&&!b.formatRole).text,result.sections[1].text);
 });
 

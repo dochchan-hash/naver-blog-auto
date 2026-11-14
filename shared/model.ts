@@ -6,7 +6,7 @@ export interface CompletionElement extends CompletionEdit {id:string;name:string
 export interface CompletionLayout {id:string;name:string;width:number;height:number;position:CompletionTemplate['position'];elements:CompletionElement[];previewUrl:string;}
 export interface CompletionTemplate {id:string;name:string;enabled?:boolean;position:'cover'|'scope'|'beforeAfter'|'space'|'closing';space:string;templateId:string;text:string;photoIds:string[];layoutId?:string;edits?:Record<string,CompletionEdit>;overlays?:CompletionOverlay[];removedRows?:string[];markers?:{number:number;x:number;y:number}[];}
 export type Phase = 'site' | 'compare' | 'assets' | 'write' | 'publish';
-export type Role = 'photo' | 'template-photo' | 'construction' | 'floorplan-original' | 'floorplan-target' | 'template' | 'video';
+export type Role = 'photo' | 'template-photo' | 'construction' | 'material-selection' | 'floorplan-original' | 'floorplan-target' | 'template' | 'video';
 export interface ComplexDetails {name:string;region:string;url:string;text:string;types:string[];images:{label:string;url:string}[];supplyArea:string;exclusiveArea:string;selectedType:string;notice:string;}
 export interface Site { name: string; region: string; type: string; supplyArea: string; exclusiveArea: string; sourceUrl: string; details?:ComplexDetails;floorplanAssetId?:string;}
 export interface SourceConflict {id:string;space:string;topic:string;constructionFactIds:string[];cafeFactIndexes:number[];reason:string;decision:'pending'|'construction'|'cafe'|'both'|'exclude'|'custom';customText:string;}
@@ -19,7 +19,7 @@ export interface Fact { id: string; space: string; item: string; sourceAssetId?:
 export interface Asset {
   id: string; projectId: string; role: Role; filename: string; mime: string; bytes: number; hash: string;
   width?: number; height?: number; previewBytes?: number; status: string; warning?: string;
-  space: string; group: string; order: number; excluded: boolean;spaceManual?:boolean;layoutManual?:boolean; pages?: {page: number; text: string; imageUrl?: string}[];
+  space: string; group: string; order: number; excluded: boolean;spaceManual?:boolean;layoutManual?:boolean; pages?: {page: number; text: string; sheet?:string;imageUrl?: string}[];
   templateKind?:'cover'|'scope'|'completion';templateOutput?:'cover'|'scope'|'floorplan'|'completion';templateSignature?:string;templateSlotId?:string;templateIncomplete?:string[];layouts?:CompletionLayout[];
   analysis?: { space?: string; description?: string; facts?: Fact[] }; previewUrl: string; originalUrl: string;
 }

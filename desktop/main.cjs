@@ -2,11 +2,11 @@ const {app,BrowserWindow,shell,safeStorage,dialog}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const {BrowserBridge}=require('./browser.cjs');
 const {jobNotifications}=require('./notifications.cjs');
-const {loadStudio}=require('./startup.cjs');
+const {loadStudio,studioPaths}=require('./startup.cjs');
 const projectRoot=path.resolve(__dirname,'..');
-if(process.env.LEMONHOUSE_DATA_DIR)app.setPath('userData',path.join(process.env.LEMONHOUSE_DATA_DIR,'desktop'));
-else if(!app.isPackaged)app.setPath('userData',path.join(projectRoot,'.local','desktop'));
 app.setName('Lemonhouse Blog Studio');
+const studio=studioPaths({dataDir:process.env.LEMONHOUSE_DATA_DIR,packaged:app.isPackaged,projectRoot,exePath:process.execPath,userData:app.getPath('userData')});
+app.setPath('userData',studio.userData);
 if(process.platform==='win32')app.setAppUserModelId('kr.lemonhouse.blogstudio');
 let runtime,mainWindow;
 const single=app.requestSingleInstanceLock();if(!single)app.quit();
@@ -19,7 +19,7 @@ function createVault(dir){
 }
 if(single)app.whenReady().then(async()=>{
   const {createServer}=await import(pathToFileURL(path.join(projectRoot,'server','index.mjs')).href);
-  const dataDir=process.env.LEMONHOUSE_DATA_DIR||(!app.isPackaged?path.join(projectRoot,'.local'):path.join(app.getPath('userData'),'workspace'));
+  const dataDir=studio.dataDir;
   const vault=createVault(dataDir);
   runtime=await createServer({dataDir,port:0,bridge:new BrowserBridge({vault}),vault,openExternal:url=>shell.openExternal(url),onJob:jobNotifications(()=>mainWindow)});
   console.log(`레몬하우스 스튜디오: ${runtime.url}`);

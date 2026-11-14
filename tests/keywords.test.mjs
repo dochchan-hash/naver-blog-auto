@@ -14,7 +14,9 @@ async function fixture(t,postType){
  store.updateProject(p.id,{original:{...p.original,name:postType==='recommendation'?'원본단지':'파크타운'},target:{...p.target,name:'파크타운'},keywords,title:'직접 작성한 제목',blocks:[{id:'old',kind:'text',text:'직접 수정한 기존 원고'}]});
  store.put('style',postType==='case'?'case':postType==='completion'?'completion':'main',{status:'edited',referenceUrls:[],rules:'이 콘텐츠의 시공 사실과 서식을 유지합니다.',formatProfile:postType==='case'?CASE_FORMAT:postType==='completion'?COMPLETION_FORMAT:REFERENCE_FORMAT});
  store.put('asset','photo',{id:'photo',projectId:p.id,role:'photo',space:'거실',status:'ready',order:0,hash:'photo'});
- const ai=new AI(store,{}, {},{});ai.analyzeMaterials=async()=>{};return {store,p,ai,keywords};
+ const ai=new AI(store,{}, {},{});ai.analyzeMaterials=async()=>{};
+ if(postType==='completion'){ai.planWork=async()=>({signature:'keyword-fixture',items:[{id:'work-1',space:'거실',item:'확인한 벽면 마감',sourceIds:['manual'],photoIds:[]}],warnings:[]});ai.checkWork=async()=>({checks:[],issues:[],warnings:[],missing:[]});}
+ return {store,p,ai,keywords};
 }
 const result=valid=>({title:'파크타운서안 인테리어',summary:'밝고 편안한 공간',intro:valid?'파크타운서안 인테리어를 소개합니다.':'시공한 공간을 소개합니다.',sections:[{space:'거실',text:valid?'파크타운서안 인테리어는 밝은 마감이 돋보입니다.':'밝은 마감이 편안한 분위기를 만듭니다.',points:[]}],outro:valid?'파크타운서안 인테리어를 살펴보았습니다. 파크타운서안의 생활 공간에 어울리는 마감입니다.':'관심 가져주셔서 감사합니다.',tags:['파크타운서안'],warnings:[]});
 

@@ -7,6 +7,17 @@ const label=node=>typeof node==='string'?node:node?.props?[node.props.children].
 const button=(tree,text)=>nodes(tree).find(n=>['button','Button'].includes(n.type)&&label(n)===text);
 const renderSlot=(app,id)=>{const child=nodes(app.render()).find(n=>n.type?.name==='TemplateSlot'&&(!id||n.props.slot.id===id));return app.render(()=>child.type(child.props));};
 
+test('공사범위 엑셀과 선택 자재선정지 칸은 세 콘텐츠에서 구분하고 후순위·선택 첨부를 안내한다',async()=>{
+ for(const postType of ['recommendation','case','completion']){
+  const uploads=[],props={project:newProject('documents-ui',postType),assets:[],busy:false,disabled:false,update:()=>{},task:()=>{},onFiles:(files,role)=>uploads.push(role)};
+  const app=await harness('src/components/Construction.tsx','ConstructionSources',props,{}),tree=app.render(),zones=nodes(tree).filter(n=>n.type==='Dropzone');
+  assert.equal(zones.length,2);assert.deepEqual(zones.map(n=>n.props.role),['construction','material-selection']);
+  for(const zone of zones){assert.match(zone.props.accept,/\.xls/);assert.match(zone.props.accept,/\.xlsx/);assert.match(zone.props.accept,/application\/pdf/);zone.props.onFiles([],zone.props.role);}
+  assert.deepEqual(uploads,['construction','material-selection']);
+  const titles=nodes(tree).filter(n=>n.type==='SectionTitle');assert(titles.some(n=>n.props.description.includes('후순위')));assert(titles.every(n=>n.props.description.includes('선택')));
+ }
+});
+
 test('원고 화면에서 공간별 시공 분류와 본문 수정 후 확인 상태를 표시한다',async()=>{
  const p=newProject('work-ui','completion');p.blocks=[{id:'body',kind:'text',space:'주방',text:'일자 싱크대를 설치했습니다.'}];p.workPlan={signature:'s',items:[{id:'work-1',space:'주방',item:'일자 싱크대 설치',sourceIds:['manual'],photoIds:[]}],warnings:[],checks:[{workId:'work-1',blockId:'body',quote:'일자 싱크대를 설치했습니다.'}],checkedAt:'2026-10-31'};
  const props={project:p,assets:[],busy:false,update:()=>{},task:()=>{},go:()=>{},notify:()=>{},save:async()=>{}},app=await harness('src/components/Write.tsx','WriteStep',props,{});let tree=app.render();assert.match(nodes(tree).map(label).join(''),/공간별 시공내역/);assert.match(nodes(tree).map(label).join(''),/일자 싱크대 설치/);assert.match(nodes(tree).map(label).join(''),/본문 반영 확인/);

@@ -22,6 +22,21 @@ async function fixture(t){
 const testImage=()=> 'data:image/png;base64,'+createCanvas(900,500).toBuffer('image/png').toString('base64');
 const draft=text=>({title:'시공 현장',intro:'현장을 소개합니다.',sections:[{space:'거실',text,points:[]}],outro:'감사합니다.',tags:[],warnings:[]});
 
+test('실제 작업 설명 사이에 섞인 미시공 소품 분위기 문장도 대조 후 제거한다',async t=>{
+ const {ai,p}=await fixture(t);let writes=0,audits=0;
+ ai.call=async(instructions,content)=>{
+  const input=JSON.parse(content[0].text);
+  if(instructions.startsWith('공간별 시공 분류'))return {items:[{space:'거실',item:'석고 1P 후 실크벽지 도배',sourceIds:['fact:0'],photoIds:[]}],warnings:[]};
+  if(instructions.startsWith('본문 시공 대조')){
+   audits++;assert.match(instructions,/모든 문장이.*확인된 작업/);assert.match(instructions,/관계없는 가구·소품/);
+   const block=input.blocks.find(b=>b.space==='거실'&&b.role==='body');return {checks:[{workId:'work-1',blockId:block.id,quote:'석고 1P 후 실크벽지로 도배'}],issues:block.text.includes('소품')?['거실: 시공하지 않은 소품으로 아늑함을 연출했다는 문장은 시공 근거가 없습니다.']:[]};
+  }
+  writes++;assert.match(instructions,/마감 시공 근거 우선 규칙/);assert.match(instructions,/일부가 올바르더라도/);
+  return draft('석고 1P 후 실크벽지로 도배해 고른 벽면을 완성했습니다.'+(writes===1?' 소품과 창가 가구로 아늑함을 연출해 보세요.':' 고른 바탕과 정돈된 벽면의 차분한 분위기를 느껴보세요.'));
+ };
+ const {project}=await ai.generate(p.id,()=>{});assert.equal(writes,2);assert.equal(audits,2);assert(!project.blocks.some(b=>b.text?.includes('소품')));assert(project.blocks.some(b=>b.text?.includes('벽면의 차분한 분위기')));
+});
+
 test('분위기 설명만으로 끝내지 않고 공간별 시공 분류 후 누락을 보완해 실제 본문 근거를 저장한다',async t=>{
  const {ai,p}=await fixture(t);let plans=0,writes=0,audits=0;
  ai.call=async(instructions,content)=>{

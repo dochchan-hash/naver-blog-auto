@@ -104,6 +104,7 @@ function completionSpacePhotos(groups){
 export function completionPointSpaces(project){
   return [...new Set((project.completionTemplates||[]).filter(s=>s.position==='space'&&s.enabled!==false&&s.templateId).map(s=>s.space))];
 }
+export function completionNeedsDescription(project,space){return project.postType!=='completion'||!project.workPlan||project.workPlan.items.some(w=>w.space===space||w.space==='공통');}
 export function completionBlocks(project,assets,result,profile,createId=()=>crypto.randomUUID()){
   const groups=photoGroups(assets,project.coverAssetId),pointSpaces=completionPointSpaces(project),pointTemplates=completionPointTemplates(project,assets),blocks=[];
   const add=block=>blocks.push({id:createId(),...block});
@@ -123,7 +124,7 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
   const total=result.sections.filter(s=>groups.some(g=>g.space===s.space)).length;
   for(const space of postSpaceOrder(project,profile)){
     const selected=groups.filter(g=>g.space===space);if(!selected.length)continue;
-    const section=result.sections.find(s=>s.space===space);if(!section?.text.trim())throw new Error(space+' 설명이 비어 있습니다. 기존 원고는 보존했습니다.');
+    const section=result.sections.find(s=>s.space===space);if(!section||!section.text.trim()&&completionNeedsDescription(project,space))throw new Error(space+' 설명이 비어 있습니다. 기존 원고는 보존했습니다.');
     add({kind:'quote',space,text:({파우더룸:'안방 파우더룸',드레스룸:'안방 드레스룸',주방베란다:'주방 베란다',안방베란다:'안방 베란다',안방욕실:'안방 욕실',공용욕실:'공용 욕실',작은방1:'작은방 1',작은방2:'작은방 2',작은방3:'작은방 3'})[space]||spaceLabel(space),variant:referenceValue(profile.headingVariants,space)||profile.headingQuoteVariant});
     const {points,representative,slides}=completionSpacePhotos(selected);
     points.forEach(g=>photos(g));
@@ -133,7 +134,7 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
       add({kind:'text',formatRole:'pointBody',space,text:p.text});
     }
     representative.forEach(g=>photos(g,g.layout));
-    add({kind:'text',space,text:section.text});
+    if(section.text.trim())add({kind:'text',space,text:section.text});
     slides.forEach(g=>photos(g,g.layout));
     written++;if(project.questionQuote==='middle')while(questionIndex<questions.length&&written>=Math.max(1,Math.ceil((questionIndex+1)*total/(questions.length+1))))addQuestion();
   }
@@ -177,14 +178,14 @@ function completionPhotoLayout(project,assets,createId){
     result.push(block);
     if(!COMPLETION_SPACES.includes(block.space))continue;
     const p=completionSpacePhotos(selected(block.space)),following=blocks.slice(i+1).filter(b=>b.space===block.space);
-    if(['quote','heading'].includes(block.kind)){used.add(block.space);result.push(...p.points.map(photo));if(!following.some(b=>['point','pointBody'].includes(b.formatRole)))result.push(...p.representative.map(photo));}
-    if(['point','pointBody'].includes(block.formatRole)&&!following.some(b=>['point','pointBody'].includes(b.formatRole)))result.push(...p.representative.map(photo));
+    if(['quote','heading'].includes(block.kind)){used.add(block.space);result.push(...p.points.map(photo));if(!following.some(b=>['point','pointBody'].includes(b.formatRole))){result.push(...p.representative.map(photo));if(!following.some(b=>b.kind==='text'&&!['point','pointBody'].includes(b.formatRole)))result.push(...p.slides.map(photo));}}
+    if(['point','pointBody'].includes(block.formatRole)&&!following.some(b=>['point','pointBody'].includes(b.formatRole))){result.push(...p.representative.map(photo));if(!following.some(b=>b.kind==='text'&&!['point','pointBody'].includes(b.formatRole)))result.push(...p.slides.map(photo));}
     if(block.kind==='text'&&!['point','pointBody'].includes(block.formatRole)&&!following.some(b=>b.kind==='text'&&!['point','pointBody'].includes(b.formatRole)))result.push(...p.slides.map(photo));
   }
   addPlans();result.push(...selected('마무리').map(photo));return completionMediaBlocks(project,assets,result,createId);
 }
 export function missingSpaceDescriptions(project,assets){
-  return [...new Set(photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'').map(g=>g.space))].filter(s=>postSpaces(project).includes(s)).filter(space=>{
+  return [...new Set(photoGroups(assets,project.coverAssetId,project.postType==='case'?project.templatePhotoId:'').map(g=>g.space))].filter(s=>postSpaces(project).includes(s)&&completionNeedsDescription(project,s)).filter(space=>{
     const start=project.blocks.findIndex(b=>b.space===space&&['heading','quote'].includes(b.kind));
     const end=project.blocks.findIndex((b,i)=>i>start&&(b.kind==='divider'||b.space&&b.space!==space&&['heading','quote'].includes(b.kind)));
     return start<0||!project.blocks.slice(start,end<0?undefined:end).some(b=>b.kind==='text'&&b.space===space&&b.text?.trim());
