@@ -1,6 +1,6 @@
 # Windows에서 사용하기 · 2026-11-14
 
-1. [최신 실행본 다운로드](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)를 엽니다. 비공개 저장소에 접근할 수 있는 GitHub 계정으로 로그인합니다.
+1. [최신 실행본 다운로드](https://github.com/dochchan-hash/naver-blog-auto/releases/latest)를 엽니다.
 2. Assets에서 **naver-blog-auto-0.1.0-windows-x64.zip**을 받습니다. Source code는 실행 파일이 아닙니다.
 3. ZIP을 **새 폴더에 모두 추출**합니다. 기존 작업 폴더에는 덮어쓰지 마세요.
 4. 추출한 폴더의 **레몬하우스 실행.cmd**를 실행합니다. 이 스크립트가 프로그램과 같은 폴더의 저장 자료를 연결합니다. 실행 후 명령어 창은 자동으로 닫힙니다.
