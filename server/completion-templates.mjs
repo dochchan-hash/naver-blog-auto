@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readPsd,getLayerCanvas,getCompositeCanvas,initializeCanvas} from 'ag-psd';
 import {createCanvas,ImageData,loadImage,GlobalFonts} from '@napi-rs/canvas';
+import sharp from 'sharp';
 import {completionText,completionPhotos,completionBands,completionMarkers,completionMarkerSprites,isCompletionMarker,completionPhotoPlacement,drawCompletionText} from '../shared/completion-templates.mjs';
 import {checkCancelled} from './jobs.mjs';
 initializeCanvas(createCanvas,undefined,(w,h)=>new ImageData(w,h));
@@ -100,7 +101,11 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
     if(element.kind==='photo'||edit.photoId){
       const id=edit.photoId||photos.find(p=>p.element.id===element.id)?.id,photo=assets.find(a=>a.id===id&&a.projectId===project.id&&['photo','template-photo'].includes(a.role)&&!a.excluded&&!a.templateOutput&&a.status==='ready');
       const part=createCanvas(element.width,element.height),c=part.getContext('2d');
-      if(photo){const image=await loadImage(resolve(photo.originalPath)),p=completionPhotoPlacement(edit,element,image);c.drawImage(image,p.x,p.y,p.width,p.height);}
+      if(photo){
+        const source=sharp(resolve(photo.originalPath)).autoOrient(),{autoOrient:size}=await source.metadata(),p=completionPhotoPlacement(edit,element,size);
+        const image=await loadImage(await source.resize({width:Math.max(1,Math.ceil(p.width)),height:Math.max(1,Math.ceil(p.height)),fit:'fill',kernel:'lanczos3',withoutEnlargement:true}).png().toBuffer());
+        c.drawImage(image,p.x,p.y,p.width,p.height);
+      }
       else{missing.push(element.name);c.fillStyle='#eef0e9';c.fillRect(0,0,part.width,part.height);c.font='24px "Malgun Gothic",sans-serif';c.fillStyle='#61715d';c.fillText('사진을 선택하세요',18,part.height/2);}
       c.globalCompositeOperation='destination-in';c.drawImage(sprite,0,0);ctx.drawImage(part,x,y,element.width*scale,element.height*scale);part.width=1;
     }else if(element.kind==='text'){
@@ -117,8 +122,7 @@ export async function renderCompletionLayout(template,slot,project,assets,resolv
   }
   for(const overlay of slot.overlays||[]){if(overlay.backgroundColor&&overlay.backgroundColor!=='transparent'){ctx.fillStyle=overlay.backgroundColor;ctx.fillRect(overlay.x,overlay.y,overlay.width,overlay.height);}drawText(ctx,overlay,overlay,overlay.text);}
   const height=bands.reduce((sum,b)=>sum+b.height,0);
-  if(height===layout.height)return {buffer:canvas.toBuffer('image/jpeg',95),missing,layout};
-  const compact=createCanvas(layout.width,height),c=compact.getContext('2d');
-  for(const band of bands)c.drawImage(canvas,0,band.y,layout.width,band.height,0,band.top,layout.width,band.height);
-  return {buffer:compact.toBuffer('image/jpeg',95),missing,layout:{...layout,height}};
+  const output=height===layout.height?canvas:createCanvas(layout.width,height);
+  if(output!==canvas){const c=output.getContext('2d');for(const band of bands)c.drawImage(canvas,0,band.y,layout.width,band.height,0,band.top,layout.width,band.height);}
+  return {buffer:await sharp(output.toBuffer('image/png')).jpeg({quality:100,chromaSubsampling:'4:4:4'}).toBuffer(),missing,layout:{...layout,height}};
 }

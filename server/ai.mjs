@@ -5,6 +5,7 @@ import {completionPointTemplates} from '../shared/completion-templates.mjs';
 import {excelMimes} from './spreadsheets.mjs';
 const scopeImageSchema=z.object({location:z.string().max(300),area:z.string().max(100),concept:z.string().max(300),scopeProject:z.string().max(300),scopeCopyright:z.string().max(300),rows:z.array(z.object({label:z.string().min(1).max(300),value:z.string().min(1).max(4000),field:z.enum(['wall','floor','other'])})).max(100),warnings:z.array(z.string())});
 import {randomUUID,createHash} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import {z} from 'zod';
 import sharp from 'sharp';
 import {SPACES,spaceLabel,parseJsonOutput,photoGroups,keywordReport,validateNaverUrl,postSpaces,postSpaceOrder,postSite,postLabel,completionBlocks,completionPointSpaces,postVideoBlocks,styleKey as keyForStyle} from '../shared/domain.mjs';
@@ -36,9 +37,9 @@ export async function consumeResponseStream(body){
       if(!text)text=(value.response?.output||[]).flatMap(o=>o.content||[]).filter(c=>c.type==='output_text').map(c=>c.text).join('');
     }
   };
-  try{while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let match;while((match=/\r?\n\r?\n/.exec(buffer))){parseEvent(buffer.slice(0,match.index));buffer=buffer.slice(match.index+match[0].length);}}buffer+=decoder.decode();if(buffer.trim())parseEvent(buffer);}
-  finally{reader.releaseLock();}
-  if(!completed)throw error('AI 연결이 완료 전에 끊겼습니다. 원고를 덮어쓰지 않았습니다.',502);
+  try{while(!completed){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let match;while(!completed&&(match=/\r?\n\r?\n/.exec(buffer))){parseEvent(buffer.slice(0,match.index));buffer=buffer.slice(match.index+match[0].length);}}if(!completed){buffer+=decoder.decode();if(buffer.trim())parseEvent(buffer);}}
+  finally{try{await reader.cancel();}catch{}reader.releaseLock();}
+  if(!completed)throw Object.assign(error('AI 연결이 완료 전에 끊겼습니다. 원고를 덮어쓰지 않았습니다.',502),{retryable:true});
   return {text,usage};
 }
 const factSchema=z.object({facts:z.array(z.object({space:z.string(),item:z.string().min(1),uncertain:z.boolean().default(false)})),warnings:z.array(z.string()).default([])});
@@ -66,9 +67,22 @@ export class AI {
     const model=requested||models.find(m=>/luna|mini/i.test(m.id))?.id||models[0]?.id;
     if(!model||!models.some(m=>m.id===model))throw error('설정에서 이 계정에 사용 가능한 AI 모델을 선택해 주세요.',400);
     const format=schema?{type:'json_schema',name:'lemonhouse_result',strict:true,schema:outputSchema(schema)}:{type:'json_object'};
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({model,instructions:`${instructions}\n${jsonHint}`,input:[{role:'user',content}],text:{format},store:false,stream:true}),signal:jobSignal()?AbortSignal.any([jobSignal(),AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs)});
-    if(!response.ok){if(response.status===429)throw responseError({code:'rate_limit'});if([401,403].includes(response.status))throw responseError({code:'permission'});throw error(`AI 요청을 시작하지 못했습니다 (${response.status}). 선택한 모델의 이미지·문서 지원을 확인해 주세요.`,502);}
-    const result=await consumeResponseStream(response.body);
+    const signal=jobSignal()?AbortSignal.any([jobSignal(),AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs);
+    let result;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        if(attempt)await delay(attempt*1000,undefined,{signal});
+        checkCancelled();
+        const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({model,instructions:`${instructions}\n${jsonHint}`,input:[{role:'user',content}],text:{format},store:false,stream:true}),signal});
+        if(!response.ok){try{await response.body?.cancel();}catch{}if(response.status===429)throw responseError({code:'rate_limit'});if([401,403].includes(response.status))throw responseError({code:'permission'});throw error(`AI 요청을 시작하지 못했습니다 (${response.status}). 선택한 모델의 이미지·문서 지원을 확인해 주세요.`,502);}
+        result=await consumeResponseStream(response.body);break;
+      }catch(cause){
+        checkCancelled();
+        if(signal.aborted)throw error('AI 응답 대기 시간이 초과되었습니다. 자료와 기존 원고는 보존했습니다. 잠시 후 다시 작성해 주세요.',504);
+        if(!cause.retryable&&!/^(?:terminated|fetch failed)$/i.test(cause.message||'')&&!/^(?:UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|EPIPE)$/.test(cause.cause?.code||''))throw cause;
+        if(attempt===2)throw Object.assign(error('AI 응답 연결이 반복해서 끊겨 작성을 마치지 못했습니다. 자료와 기존 원고는 보존했습니다. 잠시 후 다시 작성해 주세요.',502),{cause});
+      }
+    }
     checkCancelled();
     this.store.put('usage',randomUUID(),{model,usage:result.usage,date:new Date().toISOString()});
     return parseJsonOutput(result.text);

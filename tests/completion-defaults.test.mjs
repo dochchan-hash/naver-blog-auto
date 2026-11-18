@@ -11,7 +11,7 @@ test('표지·공사범위·개별공사안내는 현장 정보와 무관하게 
  const element={id:'text',binding:'siteTitle',text:'PSD 원래 문구'};
  for(const position of ['cover','scope','closing']){
   const slot={position,photoIds:[]};assert.equal(completionText(slot,element),'PSD 원래 문구');assert.equal(completionText({...slot,edits:{text:{text:'직접 수정'}}},element),'직접 수정');assert.equal(completionText({...slot,edits:{text:{text:''}}},element),'');
-  assert.equal(completionSignature(slot,[]),JSON.stringify({photos:[],slot:{photoIds:[],position},version:4}));
+  assert.equal(completionSignature(slot,[]),JSON.stringify({photos:[],slot:{photoIds:[],position},version:5}));
  }
  assert.equal(completionText({position:'space',text:'포인트 수정'},{binding:'point'}),'포인트 수정');
 });

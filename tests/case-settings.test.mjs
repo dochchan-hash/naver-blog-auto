@@ -2,10 +2,23 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {newProject} from '../shared/domain.mjs';
 import * as domain from '../shared/domain.mjs';import * as templateFields from '../shared/template-fields.mjs';import * as sources from '../shared/sources.mjs';import * as completionTemplates from '../shared/completion-templates.mjs';
 import * as places from '../shared/places.mjs';
+import * as format from '../shared/format.mjs';
 function nodes(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(nodes)];}
 const label=node=>typeof node==='string'?node:node?.props?[node.props.children].flat(Infinity).map(label).join(''):'';
 const button=(tree,text)=>nodes(tree).find(n=>['button','Button'].includes(n.type)&&label(n)===text);
 const renderSlot=(app,id)=>{const child=nodes(app.render()).find(n=>n.type?.name==='TemplateSlot'&&(!id||n.props.slot.id===id));return app.render(()=>child.type(child.props));};
+
+test('게시글 미리보기는 긴 템플릿의 축소 분석본 대신 제작 원본을 표시한다',async()=>{
+ const project={...newProject('preview-quality','completion'),blocks:[{id:'images',kind:'photos',assetIds:['render','photo']}]};
+ const assets=[{id:'render',role:'photo',templateOutput:'completion',space:'시공전후',previewUrl:'/tiny-267.jpg',originalUrl:'/full-1084.jpg?rev=new'},{id:'photo',role:'photo',space:'거실',previewUrl:'/normal-preview.jpg',originalUrl:'/normal-original.jpg'}];
+ const app=await harness('src/components/Preview.tsx','default',{project,assets},{}),images=nodes(app.render()).filter(n=>n.type==='img');assert.deepEqual(images.map(n=>n.props.src),['/full-1084.jpg?rev=new','/normal-preview.jpg']);
+});
+
+test('적용한 마감 템플릿 확인과 내려받기는 같은 제작 원본을 사용한다',async()=>{
+ const project=newProject('applied-quality','completion'),slot={id:'slot',name:'시공 전후',position:'beforeAfter',templateId:'template',photoIds:[],edits:{}};project.completionTemplates=[slot];
+ const assets=[{id:'template',role:'template',templateKind:'completion',layouts:[{id:'main',position:'beforeAfter',width:1084,height:4154,elements:[]}]},{id:'output',templateSlotId:'slot',status:'ready',previewUrl:'/tiny.jpg',originalUrl:'/full.jpg?rev=high',templateSignature:completionTemplates.completionSignature(slot,[])}];
+ const app=await harness('src/components/CompletionTemplates.tsx','CompletionTemplates',{project,assets,busy:false,update:()=>{},onFiles:()=>{},task:()=>{}},{}),tree=renderSlot(app);assert.equal(nodes(tree).find(n=>n.type==='img').props.src,'/full.jpg?rev=high');assert.equal(nodes(tree).find(n=>n.type==='a'&&n.props.download).props.href,'/full.jpg?rev=high');
+});
 
 test('공사범위 엑셀과 선택 자재선정지 칸은 세 콘텐츠에서 구분하고 후순위·선택 첨부를 안내한다',async()=>{
  for(const postType of ['recommendation','case','completion']){
@@ -98,7 +111,7 @@ async function harness(file,exportName,props,api){
   const states=[],refs=[],effects=[];let stateIndex=0,refIndex=0,effectIndex=0,pending=[];
   const hooks={useState:value=>{const i=stateIndex++;if(!(i in states))states[i]=value;return [states[i],next=>states[i]=typeof next==='function'?next(states[i]):next];},useRef:value=>refs[refIndex++]|| (refs[refIndex-1]={current:value}),useEffect:(fn,deps)=>{const i=effectIndex++;if(!effects[i]||deps.some((d,j)=>!Object.is(d,effects[i].deps[j])))pending.push(()=>{effects[i]?.cleanup?.();effects[i]={deps,cleanup:fn()};});}};
   const module={exports:{}},components=new Proxy({},{get:(_,name)=>name==='bytes'?value=>String(value):String(name)});
-  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:name==='../../shared/completion-templates.mjs'?completionTemplates:name==='../../shared/places.mjs'?places:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},setTimeout,clearTimeout,Date,console,crypto:globalThis.crypto});
+  vm.runInNewContext(source,{module,exports:module.exports,require:name=>name==='react'?hooks:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:name==='../api'?{api}:name==='../../shared/domain.mjs'?domain:name==='../../shared/template-fields.mjs'?templateFields:name==='../../shared/sources.mjs'?sources:name==='../../shared/completion-templates.mjs'?completionTemplates:name==='../../shared/places.mjs'?places:name==='../../shared/format.mjs'?format:components,window:{addEventListener:()=>{},removeEventListener:()=>{}},setTimeout,clearTimeout,Date,console,crypto:globalThis.crypto});
   return {render:(component=module.exports[exportName])=>{stateIndex=refIndex=effectIndex=0;pending=[];const tree=component(props);pending.forEach(fn=>fn());return tree;}};
 }
 test('작성 스타일에서 추천글과 시공사례의 링크·규칙·서식을 따로 편집하고 저장한다',async()=>{
@@ -151,7 +164,7 @@ test('사진 단계에서 사진을 먼저 첨부하고 미리보기 옆에서 �
   props.assets.push({id:'cover',role:'photo',templateOutput:'cover',status:'ready',excluded:false,previewUrl:'/preview.jpg',originalUrl:'/original.jpg',templateSignature:'old'});editor=app.render();let download=nodes(editor).find(n=>n.type==='a'&&n.props.download);assert.equal(download.props.href,undefined);assert.equal(download.props['aria-disabled'],true);
   props.assets.at(-1).templateSignature=sources.templateSourceSignature(props.project,props.assets);editor=app.render();download=nodes(editor).find(n=>n.type==='a'&&n.props.download);assert.equal(download.props.href,'/original.jpg');
   button(editor,'현장 정보로 되돌리기').props.onClick();editor=app.render();assert.equal(field('표지 현장명').props.value,'시공 현장');
-  props.assets[0].previewUrl='/photo.jpg';
+  props.assets[0].previewUrl='/photo-preview.jpg';props.assets[0].originalUrl='/photo.jpg';
   props.assets.push({id:'psd',role:'template',templateKind:'cover',previewUrl:'/psd.jpg'});
   app.render();await Promise.resolve();editor=app.render();
   const livePhoto=()=>nodes(editor).find(n=>n.type==='img'&&n.props.src==='/photo.jpg');

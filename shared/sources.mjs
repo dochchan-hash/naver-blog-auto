@@ -10,7 +10,7 @@ export function templateSourceSignature(project,assets){
   const fields=templateFields(project,assets);
   const crop=project.caseCoverCrop;
   const cropSignature=crop&&(crop.zoom!==1||crop.x!==0||crop.y!==0)?[crop.zoom,crop.x,crop.y]:undefined;
-  return JSON.stringify({cafe:[project.cafeUrl,project.sourceText],fields:project.scopeTemplateId?fields:{coverTitle:fields.coverTitle,coverConcept:fields.coverConcept},photo:photo?.id,photoHash:photo?.hash,cover:project.coverTemplateId,scope:project.scopeTemplateId,plan:plan?.hash,crop:cropSignature});
+  return JSON.stringify({version:1,cafe:[project.cafeUrl,project.sourceText],fields:project.scopeTemplateId?fields:{coverTitle:fields.coverTitle,coverConcept:fields.coverConcept},photo:photo?.id,photoHash:photo?.hash,cover:project.coverTemplateId,scope:project.scopeTemplateId,plan:plan?.hash,crop:cropSignature});
 }
 export function needsSourceCheck(project,assets){return !!project.sourceText.trim()&&(project.postType==='case'||assets.some(a=>a.role==='construction'&&!a.excluded));}
 export function sourceReviewCurrent(project,assets){return !!project.sourceReview&&project.sourceReview.signature===sourceSignature(project,assets);}

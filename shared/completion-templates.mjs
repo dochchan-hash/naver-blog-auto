@@ -69,5 +69,5 @@ export function drawCompletionText(ctx,element,edit,text){
 export function completionSignature(slot,assets){
   const ids=[...new Set([...slot.photoIds,...Object.values(slot.edits||{}).map(e=>e.photoId).filter(Boolean)])].sort();
   const {name,enabled,...input}=slot;
-  return JSON.stringify({version:4,slot:input,photos:ids.map(id=>[id,assets.find(a=>a.id===id&&!a.excluded)?.hash])},(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
+  return JSON.stringify({version:5,slot:input,photos:ids.map(id=>[id,assets.find(a=>a.id===id&&!a.excluded)?.hash])},(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 }

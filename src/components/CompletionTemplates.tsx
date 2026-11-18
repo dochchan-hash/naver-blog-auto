@@ -17,7 +17,7 @@ function TemplateSlot({slot,assets,project,onApply,onRemove,onFiles,onChange,onM
   const template=assets.find(a=>a.id===draft.templateId),layout=template?.layouts?.find(l=>l.id===(draft.layoutId||template.layouts?.[0]?.id)),photos=assets.filter(a=>a.projectId===project.id&&['photo','template-photo'].includes(a.role)&&!a.excluded&&!a.templateOutput&&a.status==='ready');
   const output=assets.find(a=>a.templateSlotId===slot.id&&a.status==='ready'),current=!!output&&!output.templateIncomplete?.length&&output.templateSignature===completionSignature(draft,assets);
   const edit=(id:string,patch:CompletionEdit)=>change({edits:{...draft.edits,[id]:{...draft.edits?.[id],...patch}}});
-  const element=layout?.elements.find(e=>e.id===selected),changes=draft.edits?.[selected]||{},image=output?.previewUrl||layout?.previewUrl||template?.previewUrl;
+  const element=layout?.elements.find(e=>e.id===selected),changes=draft.edits?.[selected]||{},image=output?.originalUrl||layout?.previewUrl||template?.previewUrl;
   const setPhoto=async(id:string,files:File[],photoId?:string)=>{
     if(files.length){const uploaded=await onFiles(files.slice(0,1),'template-photo',false);photoId=uploaded?.[0]?.id;}
     if(!photoId)return;if(!files.length&&!photos.some(a=>a.id===photoId))throw new Error('현재 현장에 첨부한 사진을 선택해 주세요.');

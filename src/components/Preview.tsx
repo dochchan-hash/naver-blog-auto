@@ -10,7 +10,7 @@ export default function Preview({project,assets}:{project:Project;assets:Asset[]
     {blocks.length?blocks.map((b,i)=>{
       if(b.kind==='map')return <div className="preview-map" key={b.id}><strong>현장 지도</strong><p>{b.text}</p><small>네이버 장소 검색에서 확인 후 지도 카드를 넣습니다.</small></div>;
       if(b.kind==='video'){const a=map.get(b.assetIds?.[0]||'');return a?<figure className="preview-video" key={b.id}><video controls preload="metadata" aria-label={b.text||'현장 동영상'} src={a.originalUrl}/><figcaption>{b.text}</figcaption></figure>:null;}
-      if(b.kind==='photos')return <div className={`preview-photos ${b.layout==='slide'?'slide':''}`} key={b.id}>{b.assetIds?.map(id=>{const a=map.get(id);return a?<img key={id} src={a.previewUrl} alt={a.space} style={isPlanCollage(project,b)?{aspectRatio:'1 / 1',objectFit:id===project.templatePhotoId?'cover':'contain'}:b.space==='표지'?{aspectRatio:'1 / 1',objectFit:'cover'}:undefined}/>:null;})}</div>;
+      if(b.kind==='photos')return <div className={`preview-photos ${b.layout==='slide'?'slide':''}`} key={b.id}>{b.assetIds?.map(id=>{const a=map.get(id);return a?<img key={id} src={a.templateOutput?a.originalUrl:a.previewUrl} alt={a.space} style={isPlanCollage(project,b)?{aspectRatio:'1 / 1',objectFit:id===project.templatePhotoId?'cover':'contain'}:b.space==='표지'?{aspectRatio:'1 / 1',objectFit:'cover'}:undefined}/>:null;})}</div>;
       if(b.kind==='divider')return <hr className={`post-rule ${b.variant||format.dividerVariant}`} key={b.id}/>;
       const styles=blockTextStyles(b,format),style=styles[0];
       if(b.kind==='heading')return <h3 className="post-heading" style={{textAlign:style.align}} key={b.id}><span style={css(style)}>{b.text}</span></h3>;

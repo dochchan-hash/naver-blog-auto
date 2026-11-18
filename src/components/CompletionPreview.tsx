@@ -19,7 +19,7 @@ export function CompletionPreview({template,layout,slot,assets,selected,select,e
         c.save();c.globalAlpha=(element as typeof element&{opacity?:number}).opacity??1;
         if(element.kind==='photo'||change.photoId){
           const id=change.photoId??photos.find((p:{element:{id:string}})=>p.element.id===element.id)?.id,asset=assets.find(a=>a.id===id),part=document.createElement('canvas');part.width=element.width;part.height=element.height;const p=part.getContext('2d')!;
-          if(asset?.previewUrl){const image=await load(asset.previewUrl),placement=completionPhotoPlacement(change,element,image);p.drawImage(image,placement.x,placement.y,placement.width,placement.height);}
+          if(asset?.originalUrl){const image=await load(asset.originalUrl),placement=completionPhotoPlacement(change,element,image);p.imageSmoothingQuality='medium';p.drawImage(image,placement.x,placement.y,placement.width,placement.height);}
           else{p.fillStyle='#eef0e9';p.fillRect(0,0,part.width,part.height);p.fillStyle='#61715d';p.font='24px sans-serif';p.fillText('사진을 끌어 넣으세요',18,part.height/2);}
           p.globalCompositeOperation='destination-in';p.drawImage(sprite,0,0);c.drawImage(part,x,y,part.width*scale,part.height*scale);
         }else if(element.kind==='text'&&(text!==element.text||['fontSize','fontFamily','fontWeight','color','align','width','height'].some(k=>change[k as keyof CompletionEdit]!==undefined))){

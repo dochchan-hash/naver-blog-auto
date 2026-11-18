@@ -96,8 +96,9 @@ export async function renderTemplate(template,project,photoPath,assets){
     for(const l of layers.filter(l=>/Project No\./i.test(l.text?.text||'')))replace(l,values.scopeProject,l.right-l.left);
     for(const l of layers.filter(l=>/ⓒ|©/.test(l.text?.text||'')))replace(l,values.scopeCopyright,l.right-l.left);
   }
-  if(artboard){const output=createCanvas(artboard.right-artboard.left,artboard.bottom-artboard.top);output.getContext('2d').drawImage(canvas,artboard.left,artboard.top,output.width,output.height,0,0,output.width,output.height);return output.toBuffer('image/jpeg',95);}
-  return canvas.toBuffer('image/jpeg',95);
+  const output=artboard?createCanvas(artboard.right-artboard.left,artboard.bottom-artboard.top):canvas;
+  if(artboard)output.getContext('2d').drawImage(canvas,artboard.left,artboard.top,output.width,output.height,0,0,output.width,output.height);
+  return sharp(output.toBuffer('image/png')).jpeg({quality:100,chromaSubsampling:'4:4:4'}).toBuffer();
 }
 
 export class Templates {

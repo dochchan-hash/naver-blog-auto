@@ -45,11 +45,11 @@ export function TemplateEditor({project,assets,update,onFiles,task,busy}:Props){
       return <div className="template-edit-card" key={kind}>
       <div className="template-image-preview"><strong>{kind==='cover'?'표지':'공사범위 · INTERIOR PLAN'}</strong>
         {live&&base?<div className="case-cover-live" style={{aspectRatio:frame.width/frame.height,maxWidth:520*frame.width/frame.height}}>
-          <img src={base.previewUrl} alt="시공사례 표지 미리보기"/>
+          <img src={base.templateOutput?base.originalUrl:base.previewUrl} alt="시공사례 표지 미리보기"/>
           <div className="case-cover-live-photo" style={{left:`${100*frame.photo.x/frame.width}%`,top:`${100*frame.photo.y/frame.height}%`,width:`${100*frame.photo.width/frame.width}%`,height:`${100*frame.photo.height/frame.height}%`}}>
-            <img src={selectedPhoto.previewUrl} alt="" style={{width:`${100*crop.zoom}%`,height:`${100*crop.zoom}%`,left:`${(1-crop.zoom)*x}%`,top:`${(1-crop.zoom)*y}%`,objectPosition:`${x}% ${y}%`,opacity:current?0:1}}/>
+            <img src={selectedPhoto.originalUrl} alt="" style={{width:`${100*crop.zoom}%`,height:`${100*crop.zoom}%`,left:`${(1-crop.zoom)*x}%`,top:`${(1-crop.zoom)*y}%`,objectPosition:`${x}% ${y}%`,opacity:current?0:1}}/>
           </div>
-        </div>:image?<img src={image.previewUrl} alt={image.filename}/>:<Notice>{kind==='cover'?'표지 PSD와 현장 사진을 선택해 주세요.':'카페 마감글 도입부의 공사범위 사진을 읽어 채웁니다.'}</Notice>}
+        </div>:image?<img src={image.originalUrl} alt={image.filename}/>:<Notice>{kind==='cover'?'표지 PSD와 현장 사진을 선택해 주세요.':'카페 마감글 도입부의 공사범위 사진을 읽어 채웁니다.'}</Notice>}
         {kind==='cover'&&frameResult&&frameResult.id===coverTemplateId&&!frameResult.frame?<Notice tone="warning">표지의 사진 영역을 읽지 못했습니다. PSD를 다시 선택해 주세요.</Notice>:null}
         {image?<>{!current?<Notice>‘수정 변경하기’를 누르면 변경 내용이 JPG에 적용됩니다.</Notice>:null}<a className="button secondary small" href={current?image.originalUrl:undefined} aria-disabled={!current} download>JPG 내려받기</a></>:null}
       </div>

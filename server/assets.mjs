@@ -41,7 +41,8 @@ export class Assets {
     const source=this.resolve(asset.originalPath),image=sharp(source,{limitInputPixels:268_402_689});
     const {width,height}=await image.metadata(),edge=Math.min(width,height,1500);
     const destination=this.resolve(`${asset.id}/${asset.templateOutput==='scope'?'02-scope':'01-representative'}.jpg`);
-    await image.rotate().resize(edge,edge,{fit:asset.templateOutput==='scope'?'contain':'cover',background:'#fff'}).jpeg({quality:94}).toFile(destination);
+    if(asset.templateOutput==='scope'&&width===height&&width<=1500)return source;
+    await image.rotate().resize(edge,edge,{fit:asset.templateOutput==='scope'?'contain':'cover',background:'#fff'}).jpeg({quality:100,chromaSubsampling:'4:4:4'}).toFile(destination);
     return destination;
   }
   async upload(req,projectId,role) {
