@@ -6,7 +6,7 @@ import os from 'node:os';
 import {Store} from '../server/store.mjs';
 import {AI} from '../server/ai.mjs';
 import {COMPLETION_FORMAT} from '../shared/format.mjs';
-import {photoLayoutBlocks} from '../shared/domain.mjs';
+import {missingSpaceDescriptions,photoLayoutBlocks,publicationBlocks} from '../shared/domain.mjs';
 import {missingWorkItems} from '../shared/sources.mjs';
 
 const intro='안녕하세요, 인테리어의 현명한 선택! 레몬하우스 인사드립니다 :)\n오늘은 따뜻한 색감과 정돈된 수납으로 아늑함을 담아낸 현장을 소개해 드릴게요. 화이트와 우드가 어우러진 공간을 지금 함께 구경해 보실까요?';
@@ -40,7 +40,51 @@ for(const repair of [false,true])test(`마감의 친근한 인사말을 유지�
   assert.equal(opening.text,intro);assert(!/KCC|5세트|3개소|2회/.test(opening.text));assert.equal(shared.text,common);
   assert(blocks.findIndex(b=>b.space==='공사범위'&&b.kind==='photos')<blocks.indexOf(shared));assert(blocks.indexOf(shared)<blocks.findIndex(b=>b.text==='BEFORE & AFTER'));
   assert.equal(writes,repair?2:1);assert.equal(audits,repair?2:1);assert.equal(project.workPlan.checks.length,3);
+  assert(!blocks.some(b=>b.space==='거실'&&b.kind==='text'),'사진 관찰만 있는 거실은 공통 공사로 설명을 만들지 않습니다.');
   const rearranged=photoLayoutBlocks(project,store.assets(p.id));assert.equal(rearranged.filter(b=>b.space==='공통').length,1);assert.equal(rearranged.find(b=>b.space==='공통').id,shared.id);
   assert(rearranged.findIndex(b=>b.space==='공사범위')<rearranged.findIndex(b=>b.space==='공통'));assert(rearranged.findIndex(b=>b.space==='공통')<rearranged.findIndex(b=>b.text==='BEFORE & AFTER'));
   assert.deepEqual(missingWorkItems(project.workPlan,rearranged),[]);
+});
+
+test('공통 시공과 공간별 시공이 함께 있어도 사진만 있는 공간을 생략하거나 비워 반환하면 바로 완성한다',async t=>{
+  const {p,store,ai}=await fixture(t);
+  for(const [order,space] of ['현관','현관','복도','작은방1','주방'].entries()){
+    const id='extra'+order;store.put('asset',id,{id,projectId:p.id,role:'photo',space,order:10+order,status:'ready',hash:id});
+  }
+  const kitchen='주방 타일 교체';
+  store.updateProject(p.id,{facts:[...store.get('project',p.id).facts,{id:'kitchen',space:'주방',item:kitchen,sourceLabel:'공사범위',confirmed:true,uncertain:false}]});
+  let writes=0,omitKitchen=false;
+  ai.call=async(instructions,content)=>{
+    const input=JSON.parse(content[0].text);
+    if(instructions.startsWith('공간별 시공 분류')){
+      return {items:[...items.map((item,i)=>({space:'공통',item,sourceIds:['fact:'+i],photoIds:[]})),{space:'주방',item:kitchen,sourceIds:['fact:3'],photoIds:[]}],warnings:[]};
+    }
+    if(instructions.startsWith('본문 시공 대조')){
+      const commonBlock=input.blocks.find(b=>b.space==='공통');
+      const kitchenBlock=input.blocks.find(b=>b.space==='주방');
+      return {checks:input.workPlan.map(work=>{
+        const block=work.space==='공통'?commonBlock:kitchenBlock;
+        return block?{workId:work.id,blockId:block.id,quote:block.text}:null;
+      }).filter(Boolean),issues:[]};
+    }
+    writes++;
+    assert.deepEqual(new Set((input.context||input).photoOnlySpaces),new Set(['현관','복도','작은방1','거실']));
+    return {...result(),sections:[
+      {space:'복도',text:'',points:[]},
+      {space:'작은방1',text:'시공 근거가 없는 설명',points:[]},
+      ...(!omitKitchen?[{space:'주방',text:kitchen,points:[]}]:[])
+    ]};
+  };
+  const {project}=await ai.generate(p.id,()=>{}),assets=store.assets(p.id);
+  assert.equal(writes,1,'사진만 있는 공간 때문에 재작성하지 않습니다.');
+  assert.deepEqual(missingSpaceDescriptions(project,assets),[]);
+  for(const blocks of [project.blocks,photoLayoutBlocks(project,assets),publicationBlocks(project,assets)]){
+    assert.deepEqual(blocks.filter(b=>b.space==='현관'&&b.kind==='photos').flatMap(b=>b.assetIds),['extra0','extra1']);
+    assert.deepEqual(blocks.filter(b=>b.kind==='text'&&['현관','복도','작은방1','거실','주방'].includes(b.space)).map(b=>b.text),[kitchen]);
+    assert(blocks.some(b=>b.space==='공통'&&b.text===common));
+  }
+  omitKitchen=true;
+  const {project:recovered}=await ai.generate(p.id,()=>{});
+  assert(recovered.blocks.some(b=>b.space==='주방'&&b.kind==='text'&&b.text===kitchen));
+  assert(recovered.generationWarnings.some(w=>w.includes('확인된 시공 항목으로 정리')));
 });

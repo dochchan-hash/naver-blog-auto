@@ -1,6 +1,6 @@
 import {needsSourceCheck,sourceReviewCurrent,resolvedSourceEvidence,unresolvedConstructionFacts,draftSourceSignature,templateSourceSignature} from './sources.mjs';
 import {formatFor,textCss,blockTextStyles,blockTextLines,sectionSpaceOrder,referenceStructure,referenceValue} from './format.mjs';
-import {completionSignature,completionPointTemplates} from './completion-templates.mjs';
+import {completionSignature,completionPointTemplates,completionPointTitle} from './completion-templates.mjs';
 import {photoUploadBlocks} from './photo-layout.mjs';
 export const SPACES = ['현관', '거실', '주방', '보조주방', '주방베란다', '안방', '안방욕실', '작은방1', '작은방2', '공용욕실', '작은방3', '파우더룸', '거실베란다', '2층', '기타'];
 export function spaceLabel(space){return ({파우더룸:'안방 파우더룸',거실베란다:'거실 베란다'})[space]||space;}
@@ -104,7 +104,9 @@ function completionSpacePhotos(groups){
 export function completionPointSpaces(project){
   return [...new Set((project.completionTemplates||[]).filter(s=>s.position==='space'&&s.enabled!==false&&s.templateId).map(s=>s.space))];
 }
-export function completionNeedsDescription(project,space){return project.postType!=='completion'||!project.workPlan||project.workPlan.items.some(w=>w.space===space||w.space==='공통');}
+export function completionNeedsDescription(project,space){
+  return project.postType!=='completion'||!project.workPlan||project.workPlan.items.some(w=>w.space===space);
+}
 export function completionBlocks(project,assets,result,profile,createId=()=>crypto.randomUUID()){
   const groups=photoGroups(assets,project.coverAssetId),pointSpaces=completionPointSpaces(project),pointTemplates=completionPointTemplates(project,assets),blocks=[];
   const add=block=>blocks.push({id:createId(),...block});
@@ -121,22 +123,26 @@ export function completionBlocks(project,assets,result,profile,createId=()=>cryp
   }
   const questions=result.questionAnswers?.length?result.questionAnswers:result.questionAnswer?[result.questionAnswer]:[];let questionIndex=0,written=0;
   const addQuestion=()=>{const q=questions[questionIndex++];if(q){add({kind:'quote',text:q.question,variant:profile.quoteVariant});add({kind:'text',text:q.answer});}};
-  const total=result.sections.filter(s=>groups.some(g=>g.space===s.space)).length;
-  for(const space of postSpaceOrder(project,profile)){
-    const selected=groups.filter(g=>g.space===space);if(!selected.length)continue;
-    const section=result.sections.find(s=>s.space===space);if(!section||!section.text.trim()&&completionNeedsDescription(project,space))throw new Error(space+' 설명이 비어 있습니다. 기존 원고는 보존했습니다.');
+  const spaces=postSpaceOrder(project,profile).filter(space=>groups.some(g=>g.space===space));
+  for(const space of spaces){
+    const selected=groups.filter(g=>g.space===space);
+    const section=result.sections.find(s=>s.space===space);
     add({kind:'quote',space,text:({파우더룸:'안방 파우더룸',드레스룸:'안방 드레스룸',주방베란다:'주방 베란다',안방베란다:'안방 베란다',안방욕실:'안방 욕실',공용욕실:'공용 욕실',작은방1:'작은방 1',작은방2:'작은방 2',작은방3:'작은방 3'})[space]||spaceLabel(space),variant:referenceValue(profile.headingVariants,space)||profile.headingQuoteVariant});
     const {points,representative,slides}=completionSpacePhotos(selected);
     points.forEach(g=>photos(g));
     const expectedPoints=pointTemplates.filter(t=>t.space===space).flatMap(t=>t.points);
-    for(const [i,p]of (pointSpaces.includes(space)?section.points||[]:[]).entries()){
-      add({kind:'text',formatRole:'point',space,text:(expectedPoints[i]?.number??i+1)+'. '+(expectedPoints[i]?.title||p.title.replace(/^\s*\d+[.)]\s*/, ''))});
-      add({kind:'text',formatRole:'pointBody',space,text:p.text});
+    const proposed=pointSpaces.includes(space)?section?.points||[]:[];
+    const matching=expectedPoints.length?expectedPoints.map(point=>({point,text:proposed.find(p=>completionPointTitle(p.title)===point.title)?.text})):
+      proposed.map((p,i)=>({point:{number:i+1,title:completionPointTitle(p.title)},text:p.text}));
+    for(const {point,text} of matching){
+      if(!text?.trim())continue;
+      add({kind:'text',formatRole:'point',space,text:point.number+'. '+point.title});
+      add({kind:'text',formatRole:'pointBody',space,text});
     }
     representative.forEach(g=>photos(g,g.layout));
-    if(section.text.trim())add({kind:'text',space,text:section.text});
+    if(section?.text.trim())add({kind:'text',space,text:section.text});
     slides.forEach(g=>photos(g,g.layout));
-    written++;if(project.questionQuote==='middle')while(questionIndex<questions.length&&written>=Math.max(1,Math.ceil((questionIndex+1)*total/(questions.length+1))))addQuestion();
+    written++;if(project.questionQuote==='middle')while(questionIndex<questions.length&&written>=Math.max(1,Math.ceil((questionIndex+1)*spaces.length/(questions.length+1))))addQuestion();
   }
   if(project.questionQuote==='end')while(questionIndex<questions.length)addQuestion();
   const contact=String(result.phone||'').replace(/[\s()-]/g,''),outro=result.outro.split(/\r?\n/).filter(line=>!contact||line.replace(/^\s*T(?:el)?\.?\s*/i,'').replace(/[\s()-]/g,'')!==contact).join('\n').trim();
@@ -172,7 +178,11 @@ function completionPhotoLayout(project,assets,createId){
     if(block.kind==='text'&&block.space==='공통'){addPlans();continue;}
     if(block.text==='BEFORE & AFTER'&&block.kind==='quote'){addPlans();continue;}
     if(block.formatRole==='closing'){
-      addPlans();for(const space of postSpaceOrder(project).filter(s=>selected(s).length&&!used.has(s))){const p=completionSpacePhotos(selected(space));used.add(space);insertSpaceSection(result,[{id:createId(),kind:'quote',space,text:spaceLabel(space),variant:'quotation_line'},...p.points.map(photo),...p.representative.map(photo),{id:createId(),kind:'text',space,text:''},...p.slides.map(photo)],postSpaceOrder(project));}
+      addPlans();for(const space of postSpaceOrder(project).filter(s=>selected(s).length&&!used.has(s))){
+        const p=completionSpacePhotos(selected(space)),section=[{id:createId(),kind:'quote',space,text:spaceLabel(space),variant:'quotation_line'},...p.points.map(photo),...p.representative.map(photo)];
+        if(completionNeedsDescription(project,space))section.push({id:createId(),kind:'text',space,text:''});
+        used.add(space);insertSpaceSection(result,[...section,...p.slides.map(photo)],postSpaceOrder(project));
+      }
     }
     if(block.space&&['quote','heading'].includes(block.kind))addPlans();
     result.push(block);

@@ -49,9 +49,14 @@ test('분위기 설명만으로 끝내지 않고 공간별 시공 분류 후 누
  const {project}=await ai.generate(p.id,()=>{});assert.equal(plans,1);assert.equal(writes,2);assert.equal(audits,2);assert.equal(project.workPlan.items.length,1);assert.equal(project.workPlan.checks.length,1);assert(project.blocks.some(b=>b.text?.includes('석고 1P')));
 });
 
-test('누락이 계속되거나 검사가 실패하면 사용자가 작성한 원고를 보존한다',async t=>{
+test('시공 누락이 반복되면 사진과 확인된 자료로 원고를 완성한다',async t=>{
  const {ai,p,store}=await fixture(t);ai.call=async instructions=>instructions.includes('공간별 시공 분류')?{items:[{space:'거실',item:'석고 1P 후 실크벽지 도배',sourceIds:['fact:0'],photoIds:['photo']}],warnings:[]}:instructions.includes('본문 시공 대조')?{checks:[],issues:[]}:draft('밝고 편안한 공간입니다.');
- await assert.rejects(ai.generate(p.id,()=>{}),/시공.*누락|누락.*시공/);assert.equal(store.get('project',p.id).blocks[0].text,'직접 작성한 원고');
+ const {project}=await ai.generate(p.id,()=>{});
+ assert(project.blocks.some(b=>b.space==='거실'&&b.kind==='text'&&b.text==='석고 1P 후 실크벽지 도배'));
+ assert(!project.blocks.some(b=>b.text?.includes('밝고 편안한')));
+ assert(project.blocks.some(b=>b.assetIds?.includes('photo')));
+ assert.deepEqual(missingWorkItems(project.workPlan,project.blocks),[]);
+ assert.deepEqual(store.get('project',p.id).blocks,project.blocks);
 });
 
 test('원문에 없는 세부 제품명·위치는 확인 경고로 남기고 실제 시공이 반영되면 원고를 보존한다',async t=>{

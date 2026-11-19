@@ -5,6 +5,7 @@ export function completionText(slot,element){
   if(slot.position==='space'&&element.binding==='point')return slot.text||element.text||'';
   return element.text||'';
 }
+export function completionPointTitle(text){return text.trim().replace(/^\d+[.)．]\s*/,'');}
 export function completionPointTemplates(project,assets){
   if(project.postType!=='completion')return [];
   return (project.completionTemplates||[]).filter(s=>s.enabled!==false&&s.position==='space'&&s.templateId).flatMap(slot=>{

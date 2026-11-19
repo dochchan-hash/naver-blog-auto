@@ -397,7 +397,6 @@ export class Naver {
     const templateWarnings=draftWarnings(project,assets).filter(w=>w.includes('변경 내용을 적용하고'));if(templateWarnings.length)throw fail(templateWarnings.join('\n'),400);
     validateNaverUrl(project.cafeTargetUrl,'cafe');if(project.cafeBoardUrl)validateNaverUrl(project.cafeBoardUrl,'cafe');
     if(!project.original.name.trim()||!project.title.trim()||!project.blocks.length)throw fail('시공 현장과 원고를 작성한 뒤 카페에서 확인해 주세요.',400);
-    const missing=missingSpaceDescriptions(project,assets);if(missing.length)throw fail(`${missing.join('·')} 공간 설명이 비어 있습니다.`,400);
     return this.exclusive(async()=>{try{
       if(bridge.window&&!bridge.window.isDestroyed()&&await bridge.frame('textarea[placeholder*="제목"],.se-title-text')){
         const occupied=await bridge.evaluate(()=>!!document.querySelector('textarea[placeholder*="제목"]')?.value.trim()||[...document.querySelectorAll('.se-component .__se-node')].some(e=>e.textContent.replace(/[\s\u200B\uFEFF]/g,''))||!!document.querySelector('.se-component.se-image,.se-component.se-imageGroup'),null,{selector:'textarea[placeholder*="제목"],.se-title-text'});
