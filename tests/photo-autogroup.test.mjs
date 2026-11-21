@@ -16,7 +16,7 @@ async function setup(t){
 
 test('세 콘텐츠의 최초 업로드 분류와 수동 분석 모두 같은 공간을 순서대로 자동 묶고 재분석은 편집값을 보존한다',async t=>{
  const r=await setup(t),groups=[];r.auth.status=()=>({connected:true});let calls=0;
- r.ai.call=async(_,content,{schema})=>{calls++;return schema.parse({space:content.at(-1).text.includes('주방')?'주방':'거실',description:'확인한 공간',uncertain:false});};
+ r.ai.call=async(_,content,{schema})=>{calls++;assert.equal(content[0].type,'input_text');assert.equal(content[1].type,'input_image');return schema.parse({space:'거실',description:'확인한 공간',uncertain:false});};
  const bytes=await sharp({create:{width:32,height:32,channels:3,background:'#cccccc'}}).jpeg().toBuffer();
  for(const postType of ['recommendation','case','completion']){
   const p=await r.request('/projects','POST',{postType}),names=['거실1','주방1','거실2','거실3','주방2'],ids=[];
@@ -31,6 +31,25 @@ test('세 콘텐츠의 최초 업로드 분류와 수동 분석 모두 같은 �
   assert.equal(JSON.stringify(r.store.assets(p.id)),snapshot);assert.equal(calls,priorCalls);assert.equal(r.store.asset(ids[2]).group,'');assert.equal(r.store.asset(ids[4]).space,'안방');
  }
  assert.equal(new Set(groups).size,3);
+});
+
+test('같은 이미지라도 명확한 파일명이 우선하고 이름이 모호하면 사진 분류를 사용한다',async t=>{
+ const r=await setup(t),p=r.store.createProject('completion'),hints=[];
+ r.assets.imageData=async()=> 'data:image/jpeg;base64,AA';
+ r.ai.call=async(_,content)=>{hints.push(JSON.parse(content[0].text).filenameSpace);return {space:'현관',description:'사진에서 관찰한 내용',uncertain:false};};
+ for(const [index,[filename,hint]] of Object.entries([
+  ['현장_거실02.jpg','거실'],['현장_주방_베란다03.jpg','주방베란다'],['안방 파우더룸.jpg','파우더룸'],
+  ['거실-화장실.jpg','공용욕실'],['2층-작은방 ３.jpg','작은방3'],['작은방12.jpg',''],['거실_주방.jpg',''],['IMG_1234.jpg','']
+ ])){
+  const asset={id:'filename-'+index,projectId:p.id,role:'photo',status:'ready',space:'미분류',hash:'same-image',filename,group:'',order:Number(index),excluded:false};
+  r.store.put('asset',asset.id,asset);
+  await r.ai.analyzeAsset(asset);
+  const space=hint||'현관';
+  assert.equal(r.store.asset(asset.id).space,space,filename);
+  assert.equal(r.store.asset(asset.id).group,'auto:'+p.id+':'+space);
+  assert.equal(hints.at(-1),hint,filename);
+ }
+ assert.equal(hints.length,8);
 });
 
 test('분류 도중 선택한 단독 배치·순서·공간과 기존 묶음·제외 사진·템플릿 원본은 자동 묶음에서 보존한다',async t=>{

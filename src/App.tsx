@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {House,Plus,Settings2,ChevronRight,Check,LoaderCircle,X,FolderOpen,BookOpen,CloudOff} from 'lucide-react';
+import {House,Plus,Settings2,ChevronRight,Check,LoaderCircle,X,FolderOpen,BookOpen,CloudOff,ExternalLink} from 'lucide-react';
 import type {Bootstrap,Project,Phase,Asset,Role,PostType} from '../shared/model';
 import {api} from './api';
 import {postLabel,postSite} from '../shared/domain.mjs';
@@ -14,17 +14,23 @@ import Preview from './components/Preview';
 import SettingsPanel from './components/Settings';
 const steps:{id:Phase;label:string}[]=[{id:'site',label:'현장 정보·도면'},{id:'assets',label:'사진 첨부·배치'},{id:'write',label:'원고 작성'},{id:'publish',label:'발행'}];
 const statusLabel:Record<string,string>={empty:'작성 전',generated:'초안 생성',edited:'수정 중',review:'검토 필요',published:'발행 완료',scheduled:'예약 등록'};
+const constructionKinds=['before','during'] as const;
+type ConstructionKind=typeof constructionKinds[number];
+type UploadProgress={filename:string;progress:number;index:number;total:number;linked:boolean};
 export default function App(){
   const [data,setData]=useState<Bootstrap|null>(null),[project,setProject]=useState<Project|null>(null),[settingsOpen,setSettingsOpen]=useState(false),[message,setMessage]=useState(''),[saving,setSaving]=useState(false),[saveError,setSaveError]=useState('');
-  const [uploading,setUploading]=useState<{filename:string;progress:number;index:number;total:number}|null>(null);
+  const [uploads,setUploads]=useState<Record<string,UploadProgress>>({});
+  const uploading=project?uploads[project.id]||null:null;
+  const uploadingIds=useRef(new Set<string>());
   const [starting,setStarting]=useState(false);
-  const [constructionKind,setConstructionKind]=useState<'before'|'during'|null>(null),[constructionMounted,setConstructionMounted]=useState(false),[constructionBusy,setConstructionBusy]=useState(false);
-  const selectConstruction=async(kind:'before'|'during')=>{try{await save();if(!constructionMounted)constructionInitialKind.current=kind;setConstructionMounted(true);setConstructionKind(kind);}catch(e){notify((e as Error).message);}};
-  const constructionAction=(create=false,settings=false)=>constructionFrame.current?.contentWindow?.postMessage({type:'construction-select',kind:constructionKind,create,settings},window.location.origin);
+  const [constructionKind,setConstructionKind]=useState<ConstructionKind|null>(null),[constructionMounted,setConstructionMounted]=useState<Partial<Record<ConstructionKind,boolean>>>({}),[constructionBusy,setConstructionBusy]=useState<Partial<Record<ConstructionKind,boolean>>>({});
+  const [constructionReady,setConstructionReady]=useState<Partial<Record<ConstructionKind,boolean>>>({});
+  const selectConstruction=async(kind:ConstructionKind)=>{try{await save();setConstructionMounted(previous=>({...previous,[kind]:true}));setConstructionKind(kind);}catch(e){notify((e as Error).message);}};
+  const constructionAction=(create=false,settings=false)=>{if(constructionKind)constructionFrames.current[constructionKind]?.contentWindow?.postMessage({type:'construction-select',kind:constructionKind,create,settings},window.location.origin);};
   const sessionStarted=useRef(Date.now());
   const current=useRef<Project|null>(null),dirty=useRef(false),savePromise=useRef<Promise<void>|null>(null),seenJobs=useRef(new Set<string>());
-  const constructionFrame=useRef<HTMLIFrameElement>(null);
-  const constructionInitialKind=useRef<'before'|'during'>('before');
+  const constructionFrames=useRef<Partial<Record<ConstructionKind,HTMLIFrameElement|null>>>({});
+  const formatTargets=useRef(new Map<string,string>());
   const notify=useCallback((message:string)=>setMessage(message),[]);
   const update=useCallback((patch:Partial<Project>)=>{if(!current.current)return;current.current={...current.current,...patch};dirty.current=true;setProject(current.current);},[]);
   const save=useCallback(async()=>{
@@ -35,42 +41,64 @@ export default function App(){
   },[]);
   useEffect(()=>{
     const receive=(event:MessageEvent)=>{
-      if(event.origin!==window.location.origin||event.source!==constructionFrame.current?.contentWindow)return;
-      if(event.data?.type==='construction-ready')constructionAction();
-      if(event.data?.type==='construction-busy')setConstructionBusy(event.data.busy===true);
+      if(event.origin!==window.location.origin)return;
+      const kind=constructionKinds.find(kind=>event.source===constructionFrames.current[kind]?.contentWindow);
+      if(!kind)return;
+      if(event.data?.type==='construction-ready')setConstructionReady(previous=>({...previous,[kind]:true}));
+      if(event.data?.type==='construction-busy')setConstructionBusy(previous=>({...previous,[kind]:event.data.busy===true}));
     };
-    window.addEventListener('message',receive);constructionAction();
+    window.addEventListener('message',receive);
     return()=>window.removeEventListener('message',receive);
-  },[constructionKind]);
+  },[]);
   const refresh=useCallback(async()=>{
     const next=await api.bootstrap();setData(next);
-    if(!current.current){const id=localStorage.getItem('lemonhouse-project');current.current=next.projects.find(p=>p.id===id)||next.projects[0];setProject(current.current);}
+    if(!current.current){const id=sessionStorage.getItem('lemonhouse-project')||localStorage.getItem('lemonhouse-project');current.current=next.projects.find(p=>p.id===id)||next.projects[0];setProject(current.current);}
     else if(!dirty.current&&!savePromise.current){const fresh=next.projects.find(p=>p.id===current.current!.id);if(fresh&&fresh.revision>current.current.revision){current.current=fresh;setProject(fresh);}}
-    for(const job of next.jobs){const key=job.id+job.status;if(!['running','queued','cancelling'].includes(job.status)&&!seenJobs.current.has(key)){seenJobs.current.add(key);if(Date.parse(job.createdAt)>=sessionStarted.current){if(job.status!=='completed')notify(job.message);else if(job.kind==='style')notify('참고 링크의 작성 스타일 분석을 완료했습니다.');else if(job.kind==='format'){const style=job.projectId==='style-completion'?next.completionStyle:job.projectId==='style-case'?next.caseStyle:next.style;if(style.formatProfile&&((current.current?.postType||'recommendation')===(job.projectId==='style-completion'?'completion':job.projectId==='style-case'?'case':'recommendation'))&&current.current?.blocks.length&&!['published','scheduled'].includes(current.current.draftStatus)&&!next.jobs.some(j=>j.projectId===current.current!.id&&['running','queued','cancelling'].includes(j.status))){current.current=applyReferenceFormat(current.current,style.formatProfile);dirty.current=true;setProject(current.current);notify('새 참고 링크의 서식을 현재 원고에 적용했습니다.');}else notify('새 참고 링크의 원본 서식을 가져왔습니다.');}else if(job.kind==='analyze')notify('사진과 시공 자료 분석을 완료했습니다.');else if(job.kind==='templates')notify('템플릿 이미지를 만들었습니다. 미리보기와 JPG 파일을 확인해 주세요.');else if(job.kind==='generate')notify('원고를 작성했습니다. 사진과 시공내용을 확인해 주세요.');else if(job.kind==='prepare')notify((job.result as {draftSaved?:boolean}|undefined)?.draftSaved?'카페에 임시저장했습니다. 최종 등록은 하지 않았습니다.':'네이버 편집기에 준비했습니다. 최종 발행은 하지 않았습니다.');else if(['publish','verify'].includes(job.kind))notify('네이버 등록 결과를 확인했습니다.');}}}
+    for(const job of next.jobs){const key=job.id+job.status;if(!['running','queued','cancelling'].includes(job.status)&&!seenJobs.current.has(key)){seenJobs.current.add(key);if(Date.parse(job.createdAt)>=sessionStarted.current){if(job.status!=='completed')notify(job.message);else if(job.kind==='style')notify('참고 링크의 작성 스타일 분석을 완료했습니다.');else if(job.kind==='format'){const target=formatTargets.current.get(job.id);formatTargets.current.delete(job.id);const style=job.projectId==='style-completion'?next.completionStyle:job.projectId==='style-case'?next.caseStyle:next.style;if(target&&target===current.current?.id&&style.formatProfile&&((current.current?.postType||'recommendation')===(job.projectId==='style-completion'?'completion':job.projectId==='style-case'?'case':'recommendation'))&&current.current?.blocks.length&&!['published','scheduled'].includes(current.current.draftStatus)&&!next.jobs.some(j=>j.projectId===current.current!.id&&['running','queued','cancelling'].includes(j.status))){current.current=applyReferenceFormat(current.current,style.formatProfile);dirty.current=true;setProject(current.current);notify('새 참고 링크의 서식을 현재 원고에 적용했습니다.');}else notify('새 참고 링크의 원본 서식을 가져왔습니다.');}else if(job.kind==='analyze')notify('사진과 시공 자료 분석을 완료했습니다.');else if(job.kind==='templates')notify('템플릿 이미지를 만들었습니다. 미리보기와 JPG 파일을 확인해 주세요.');else if(job.kind==='generate')notify('원고를 작성했습니다. 사진과 시공내용을 확인해 주세요.');else if(job.kind==='prepare')notify((job.result as {draftSaved?:boolean}|undefined)?.draftSaved?'카페에 임시저장했습니다. 최종 등록은 하지 않았습니다.':'네이버 편집기에 준비했습니다. 최종 발행은 하지 않았습니다.');else if(['publish','verify'].includes(job.kind))notify('네이버 등록 결과를 확인했습니다.');}}}
   },[notify]);
   useEffect(()=>{refresh().catch(e=>notify(e.message));let failed=false;const id=setInterval(()=>{refresh().then(()=>{failed=false;}).catch(()=>{if(!failed){failed=true;notify('작업 상태를 갱신하지 못했습니다. 프로그램 연결이 복구되면 완료 상태를 다시 확인합니다.');}});},2500);return()=>clearInterval(id);},[refresh,notify]);
   useEffect(()=>{if(!dirty.current)return;const id=setTimeout(()=>{save().catch(()=>{});},650);return()=>clearTimeout(id);},[project,save]);
-  useEffect(()=>{const before=(e:BeforeUnloadEvent)=>{if(dirty.current||saving||uploading){e.preventDefault();}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[saving,uploading]);
-  const switchProject=async(p:Project)=>{try{await save();const next=current.current?.id===p.id?current.current:p;current.current=next;dirty.current=false;setProject(next);localStorage.setItem('lemonhouse-project',p.id);}catch(e){notify((e as Error).message);}};
-  const removeProject=async()=>{if(!current.current)return;const id=current.current.id;if(!window.confirm('선택한 게시글과 첨부 사진을 보관함에서 삭제할까요?'))return;try{await save();await api.deleteProject(id);current.current=null;dirty.current=false;localStorage.removeItem('lemonhouse-project');await refresh();notify('게시글을 삭제했습니다.');}catch(e){notify((e as Error).message);}};
-  const create=async(postType:PostType='recommendation')=>{try{await save();const p=await api.createProject(postType);current.current=p;dirty.current=false;setProject(p);await refresh();localStorage.setItem('lemonhouse-project',p.id);}catch(e){notify((e as Error).message);}};
+  useEffect(()=>{const before=(e:BeforeUnloadEvent)=>{if(dirty.current||savePromise.current||uploadingIds.current.size){e.preventDefault();}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[]);
+  const selectProject=(p:Project)=>{current.current=p;dirty.current=false;setProject(p);setConstructionKind(null);sessionStorage.setItem('lemonhouse-project',p.id);sessionStorage.setItem('lemonhouse-project-'+(p.postType||'recommendation'),p.id);localStorage.setItem('lemonhouse-project',p.id);};
+  const switchProject=async(p:Project)=>{try{await save();selectProject(current.current?.id===p.id?current.current:p);}catch(e){notify((e as Error).message);}};
+  const removeProject=async()=>{if(!current.current)return;const id=current.current.id;if(!window.confirm('선택한 게시글과 첨부 사진을 보관함에서 삭제할까요?'))return;try{await save();await api.deleteProject(id);current.current=null;dirty.current=false;sessionStorage.removeItem('lemonhouse-project');localStorage.removeItem('lemonhouse-project');await refresh();notify('게시글을 삭제했습니다.');}catch(e){notify((e as Error).message);}};
+  const create=async(postType:PostType='recommendation')=>{try{await save();selectProject(await api.createProject(postType));await refresh();}catch(e){notify((e as Error).message);}};
   const go=async(phase:Phase)=>{if(!current.current)return;update({phase});try{await save();}catch(e){notify((e as Error).message);}};
   const task=async(kind:string,confirmed=false,templateSlotId?:string)=>{setStarting(true);try{await save();if(!current.current)return;const snapshot=current.current,job=templateSlotId?await api.task(snapshot.id,kind,confirmed,snapshot.revision,templateSlotId):await api.task(snapshot.id,kind,confirmed,snapshot.revision);setData(prev=>prev?{...prev,jobs:[job,...prev.jobs]}:prev);if(['generate','compare','analyze'].includes(kind)&&!data?.auth.connected)setSettingsOpen(true);}catch(e){notify((e as Error).message);if(/ChatGPT|계정/.test((e as Error).message))setSettingsOpen(true);}finally{setStarting(false);}};
   const patchAssets=async(patches:Partial<Asset>[])=>{try{await save();const res=await api.patchAssets(patches);setData(prev=>prev?{...prev,assets:res.assets}:prev);}catch(e){notify((e as Error).message);}};
   const upload=async(files:File[],role:Role,classify=true)=>{
     const uploaded:Asset[]=[];
-    if(uploading||!current.current)return uploaded;const id=current.current.id;
-    try{await save();for(let i=0;i<files.length;i++){const file=files[i],uploadRole=['case','completion'].includes(current.current?.postType||'')&&['photo','template'].includes(role)?(/\.psd$/i.test(file.name)?'template':'photo'):role;setUploading({filename:file.name,progress:0,index:i+1,total:files.length});try{uploaded.push(await api.upload(id,uploadRole,file,progress=>setUploading({filename:file.name,progress,index:i+1,total:files.length}),classify));await refresh();}catch(e){notify(`${file.name}: ${(e as Error).message}`);}}}catch(e){notify((e as Error).message);}finally{setUploading(null);}
+    const origin=current.current;
+    if(!origin||!files.length||uploadingIds.current.has(origin.id))return uploaded;
+    const id=origin.id;
+    const linked=['template-photo','video','floorplan-original','floorplan-target'].includes(role);
+    uploadingIds.current.add(id);
+    const report=(index:number,progress:number)=>setUploads(previous=>({...previous,[id]:{filename:files[index].name,progress,index:index+1,total:files.length,linked}}));
+    report(0,0);
+    try{
+      await save();
+      for(let i=0;i<files.length;i++){
+        const file=files[i],uploadRole=['case','completion'].includes(origin.postType||'')&&['photo','template'].includes(role)?(/\.psd$/i.test(file.name)?'template':'photo'):role;
+        report(i,0);
+        try{uploaded.push(await api.upload(id,uploadRole,file,progress=>report(i,progress),classify));await refresh();}
+        catch(e){notify(`${file.name}: ${(e as Error).message}`);}
+      }
+    }catch(e){notify((e as Error).message);}
+    finally{
+      uploadingIds.current.delete(id);
+      setUploads(previous=>{const next={...previous};delete next[id];return next;});
+    }
     return uploaded;
   };
   const selectedAssets=useMemo(()=>data?.assets.filter(a=>a.projectId===project?.id||['case','completion'].includes(project?.postType||'')&&a.role==='template'&&(project?.postType==='completion'?a.templateKind==='completion':a.templateKind!=='completion'))||[],[data?.assets,project?.id,project?.postType]);
   if(!data||!project)return <div className="app-loading"><div className="brand-mark"><House size={24}/></div><h1>레몬하우스 스튜디오</h1><p>{message||'작업 공간을 준비하고 있습니다.'}</p>{!message?<LoaderCircle className="spin"/>:<Button onClick={()=>refresh().catch(e=>notify(e.message))}>다시 연결</Button>}</div>;
   const isCase=project.postType==='case',isCompletion=project.postType==='completion',label=postLabel(project),site=postSite(project),postType=project.postType||'recommendation',listedProjects=data.projects.filter(p=>(p.postType||'recommendation')===postType);
-  const selectSection=(kind:PostType)=>{setConstructionKind(null);const p=data.projects.find(p=>(p.postType||'recommendation')===kind);if(p)void switchProject(p);else void create(kind);};
+  const selectSection=(kind:PostType)=>{const last=sessionStorage.getItem('lemonhouse-project-'+kind);const p=data.projects.find(p=>p.id===last&&(p.postType||'recommendation')===kind)||data.projects.find(p=>(p.postType||'recommendation')===kind);if(p)void switchProject(p);else void create(kind);};
   const activeJob=data.jobs.find(j=>j.projectId===project.id&&['running','queued','cancelling'].includes(j.status));const busy=!!activeJob||starting;
   const showPreview=['write','publish'].includes(project.phase),stepIndex=steps.findIndex(s=>s.id===(project.phase==='compare'?'site':project.phase));
-  const props={project,update,notify,go,assets:selectedAssets,onFiles:upload,task,refresh,busy,uploading};
-  const navigationBusy=busy||!!uploading||constructionBusy;
+  const updateSelected=(patch:Partial<Project>)=>{if(current.current?.id===project.id)update(patch);};
+  const props={project,update:updateSelected,notify,go,assets:selectedAssets,onFiles:upload,task,refresh,busy,uploading};
+  const navigationBusy=starting||uploading?.linked===true;
   return <div className="app-shell"><aside className="sidebar">
     <a className="brand" href="#" onClick={e=>e.preventDefault()}><span className="brand-mark"><House size={23}/></span><span><strong>LEMON HOUSE</strong><small>블로그 스튜디오</small></span></a>
     <div className="workspace-label">내 작업 공간<span>LOCAL</span></div>
@@ -81,21 +109,24 @@ export default function App(){
       <Button aria-pressed={constructionKind==='before'} disabled={navigationBusy} onClick={()=>void selectConstruction('before')}>공사전 작성 · 카페</Button>
       <Button aria-pressed={constructionKind==='during'} disabled={navigationBusy} onClick={()=>void selectConstruction('during')}>공사중 작성 · 카페</Button>
     </nav>
-    <Button className="new-project" onClick={()=>constructionKind?constructionAction(true):void create(postType)} disabled={navigationBusy}><Plus size={17}/>새 {constructionKind==='before'?'공사전':constructionKind==='during'?'공사중':label} 작성</Button>
+    <Button className="new-project" onClick={()=>constructionKind?constructionAction(true):void create(postType)} disabled={navigationBusy||!!(constructionKind&&(!constructionReady[constructionKind]||constructionBusy[constructionKind]))}><Plus size={17}/>새 {constructionKind==='before'?'공사전':constructionKind==='during'?'공사중':label} 작성</Button>
     {constructionKind?<div className="local-note construction-note"><BookOpen size={17}/><div><strong>{constructionKind==='before'?'공사전':'공사중'} 보관함</strong><small>오른쪽 작업 목록에서 원고를 열고 수정할 수 있습니다.</small></div></div>:<>
       <div className="nav-section-label"><FolderOpen size={13}/>{label} 보관함<span>{listedProjects.length}</span></div>
       <nav className="project-list" aria-label={`저장된 ${label}`}>{listedProjects.map(p=><button key={p.id} className={p.id===project.id?'selected':''} onClick={()=>switchProject(p)} disabled={navigationBusy}><BookOpen size={16}/><div><strong>{p.name===`새 ${postLabel(p)}`?(postSite(p).name||p.name):p.name}</strong><small>{statusLabel[p.draftStatus]||'작성 중'} · {new Date(p.updatedAt).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})}</small></div>{p.id===project.id?<ChevronRight size={14}/>:null}</button>)}</nav>
     </>}
-    <div className="sidebar-bottom"><div className="local-note"><CloudOff size={17}/><div><strong>이 컴퓨터에 저장</strong><small>원본 사진과 원고를 보관합니다.</small></div></div><button className="settings-link" onClick={()=>constructionKind?constructionAction(false,true):setSettingsOpen(true)}><Settings2 size={17}/>계정과 작성 스타일</button></div>
+    <div className="sidebar-bottom"><a className="settings-link" href="/?new-window" target="_blank" rel="noopener"><ExternalLink size={17}/>새 스튜디오 창 열기</a><div className="local-note"><CloudOff size={17}/><div><strong>이 컴퓨터에 저장</strong><small>원본 사진과 원고를 보관합니다.</small></div></div><button className="settings-link" disabled={!!(constructionKind&&(!constructionReady[constructionKind]||constructionBusy[constructionKind]))} onClick={()=>constructionKind?constructionAction(false,true):setSettingsOpen(true)}><Settings2 size={17}/>계정과 작성 스타일</button></div>
     </aside>
-    {constructionMounted?<section className="construction-workspace" hidden={!constructionKind}><header className="topbar"><div className="breadcrumb">블로그 스튜디오<ChevronRight size={13}/><strong>{constructionKind==='before'?'공사전':'공사중'} 작성 · 카페</strong></div><span className="save-state">{constructionBusy?'작업 진행 중':'카페 임시등록까지 진행'}</span></header><iframe ref={constructionFrame} src={'/construction?kind='+constructionInitialKind.current} title="공사전·공사중 작성 화면"/></section>:null}
-    <main className="main-workspace" hidden={!!constructionKind}><header className="topbar"><div className="breadcrumb">블로그 스튜디오<ChevronRight size={13}/><strong>{label} 작성</strong></div><div className="top-actions"><span className={`save-state ${saveError?'error':''}`}>{saveError?'저장 확인 필요':saving||dirty.current?<><LoaderCircle size={13} className="spin"/>저장 중</>:<><Check size={14}/>자동 저장됨</>}</span><button className={`account-chip ${data.auth.connected?'connected':''}`} onClick={()=>setSettingsOpen(true)}><span className="status-dot"/>{data.auth.connected?'AI 연결됨':'AI 계정 연결'}<ChevronRight size={13}/></button></div></header>
+    {constructionKinds.map(kind=>constructionMounted[kind]?<section key={kind} className="construction-workspace" hidden={constructionKind!==kind}>
+      <header className="topbar"><div className="breadcrumb">블로그 스튜디오<ChevronRight size={13}/><strong>{kind==='before'?'공사전':'공사중'} 작성 · 카페</strong></div><span className="save-state">{constructionBusy[kind]?'작업 진행 중':'카페 임시등록까지 진행'}</span></header>
+      <iframe ref={frame=>{constructionFrames.current[kind]=frame;}} src={'/construction?kind='+kind} title={(kind==='before'?'공사전':'공사중')+' 작성 화면'}/>
+    </section>:null)}
+    <main key={project.id} className="main-workspace" hidden={!!constructionKind}><header className="topbar"><div className="breadcrumb">블로그 스튜디오<ChevronRight size={13}/><strong>{label} 작성</strong></div><div className="top-actions"><span className={`save-state ${saveError?'error':''}`}>{saveError?'저장 확인 필요':saving||dirty.current?<><LoaderCircle size={13} className="spin"/>저장 중</>:<><Check size={14}/>자동 저장됨</>}</span><button className={`account-chip ${data.auth.connected?'connected':''}`} onClick={()=>setSettingsOpen(true)}><span className="status-dot"/>{data.auth.connected?'AI 연결됨':'AI 계정 연결'}<ChevronRight size={13}/></button></div></header>
       <div className="workspace-heading"><div><span className="eyebrow">{isCompletion?'CAFE COMPLETION':isCase?'PROJECT PORTFOLIO':'RECOMMENDATION STUDIO'}</span><h1>{site.name?`${site.name} ${label}`:`새로운 인테리어 ${label}`}</h1><p>현장의 사진과 시공내용을, 레몬하우스다운 이야기로.</p></div><div className="button-row"><label className="field"><span>보관함 제목</span><input aria-label="보관함 제목" value={project.name} disabled={busy||!!uploading} onChange={e=>update({name:e.target.value})}/></label><Button className="secondary small" disabled={busy||!!uploading} onClick={removeProject}>{label} 삭제</Button></div><span className="draft-badge">{statusLabel[project.draftStatus]||'작성 중'}</span></div>
       <nav className="stepper" aria-label="작성 단계">{steps.map((step,i)=><button key={step.id} className={`${i===stepIndex?'current':''} ${i<stepIndex?'past':''}`} disabled={busy||!!uploading} onClick={()=>go(step.id)}><span className="step-number">{i<stepIndex?<Check size={13}/>:i+1}</span><span>{isCompletion&&step.id==='publish'?'카페 확인':step.label}</span>{i<steps.length-1?<ChevronRight size={15} className="step-chevron"/>:null}</button>)}</nav>
       {saveError?<div className="global-error"><Notice tone="warning">{saveError}<Button className="secondary small" onClick={()=>save().catch(()=>{})}>다시 저장</Button></Notice></div>:null}
       {activeJob?<div className="job-progress" role="status"><LoaderCircle size={18} className="spin"/><div><strong>{activeJob.message}</strong><progress max={100} value={activeJob.progress}/></div><span>{activeJob.progress}%</span>{activeJob.cancellable!==false?<Button className="secondary small" disabled={activeJob.status==='cancelling'} onClick={async()=>{try{await api.cancelJob(activeJob.id);await refresh();}catch(e){notify((e as Error).message);}}}>{activeJob.status==='cancelling'?'중단 중':'작업 중단'}</Button>:null}</div>:null}
       <div className={`workspace-body ${showPreview?'with-preview':''}`}><div className="work-content"><fieldset disabled={busy||!!uploading} className="work-fieldset">{['site','compare'].includes(project.phase)?<SiteStep key={project.id} {...props}/>:project.phase==='assets'?<AssetsStep {...props} patchAssets={patchAssets} uploading={uploading}/>:project.phase==='write'?<WriteStep {...props} save={save}/>:<PublishStep {...props} data={data} openSettings={()=>setSettingsOpen(true)} save={save}/>}</fieldset></div>{showPreview?<Preview project={project} assets={selectedAssets}/>:null}</div>
-    </main>{settingsOpen?<SettingsPanel key={postType} postType={postType} data={data} onClose={()=>setSettingsOpen(false)} notify={notify} refresh={refresh}/>:null}
+    </main>{settingsOpen?<SettingsPanel key={postType} postType={postType} data={data} onFormatJob={id=>formatTargets.current.set(id,project.id)} onClose={()=>setSettingsOpen(false)} notify={notify} refresh={refresh}/>:null}
     {message?<div className="toast" role="status"><span>{message}</span><button aria-label="알림 닫기" onClick={()=>setMessage('')}><X size={17}/></button></div>:null}
   </div>;
 }

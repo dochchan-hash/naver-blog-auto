@@ -84,17 +84,18 @@ test('두 공사 표지를 화면에서 수정·수동 적용·다운로드하�
   }
   await page.goto(runtime.url);
   await page.getByRole('button',{name:'공사중 작성 · 카페',exact:true}).click();
-  const editor=page.frameLocator('iframe[title="공사전·공사중 작성 화면"]');
+  const editor=page.frameLocator('iframe[title="공사중 작성 화면"]');
+  const before=page.frameLocator('iframe[title="공사전 작성 화면"]');
   await editor.locator('h1').filter({hasText:'공사중 작성'}).waitFor();
-  assert.equal(await page.locator('iframe[title="공사전·공사중 작성 화면"]').getAttribute('src'),'/construction?kind=during');
+  assert.equal(await page.locator('iframe[title="공사중 작성 화면"]').getAttribute('src'),'/construction?kind=during');
   assert.equal(await editor.locator('.list-item').count(),1);
   await page.getByRole('button',{name:'새 공사중 작성',exact:true}).click();
   await editor.locator('#v-new').waitFor({state:'visible'});await editor.locator('#f-memo').fill('공사중 전용 메모');
   await editor.locator('#f-photos').setInputFiles({name:'공사중 사진.jpg',mimeType:'image/jpeg',buffer:image});
-  await page.getByRole('button',{name:'공사전 작성 · 카페',exact:true}).click();await editor.locator('h1').filter({hasText:'공사전 작성'}).waitFor();
-  await page.getByRole('button',{name:'새 공사전 작성',exact:true}).click();await editor.locator('#v-new').waitFor({state:'visible'});
-  assert.equal(await editor.locator('#newKindHeading').textContent(),'1. 공사전 현장 정보');assert.equal(await editor.locator('#f-memo').inputValue(),'');
-  assert.equal(await editor.locator('#photoPrev .thumb').count(),0);await editor.locator('#f-memo').fill('공사전 전용 메모');
+  await page.getByRole('button',{name:'공사전 작성 · 카페',exact:true}).click();await before.locator('h1').filter({hasText:'공사전 작성'}).waitFor();
+  await page.getByRole('button',{name:'새 공사전 작성',exact:true}).click();await before.locator('#v-new').waitFor({state:'visible'});
+  assert.equal(await before.locator('#newKindHeading').textContent(),'1. 공사전 현장 정보');assert.equal(await before.locator('#f-memo').inputValue(),'');
+  assert.equal(await before.locator('#photoPrev .thumb').count(),0);await before.locator('#f-memo').fill('공사전 전용 메모');
   await page.getByRole('button',{name:'공사중 작성 · 카페',exact:true}).click();await editor.locator('h1').filter({hasText:'공사중 작성'}).waitFor();
   await page.getByRole('button',{name:'새 공사중 작성',exact:true}).click();await editor.locator('#v-new').waitFor({state:'visible'});
   assert.equal(await editor.locator('#f-memo').inputValue(),'공사중 전용 메모');assert.equal(await editor.locator('#photoPrev .nm').textContent(),'공사중 사진.jpg');

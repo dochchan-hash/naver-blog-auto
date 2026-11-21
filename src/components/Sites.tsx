@@ -5,7 +5,7 @@ import {api} from '../api';
 import {Field,SectionTitle,Button,Notice,Dropzone,Next} from './Common';
 import {ConstructionSources} from './Construction';
 import {regionMatches} from '../../shared/places.mjs';
-type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<unknown>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
+type Props={project:Project;assets:Asset[];update:(patch:Partial<Project>)=>void;notify:(message:string)=>void;go:(phase:Project['phase'])=>void;onFiles:(files:File[],role:Role)=>Promise<Asset[]>;task:(kind:string)=>void;refresh:()=>Promise<void>;busy:boolean;uploading:{filename:string;progress:number;index:number;total:number}|null;};
 type Candidate={name:string;url?:string;label?:string;key?:string;suggested?:boolean};
 const pyeong=(area:string)=>Number(area)>0?`${(Number(area)/3.305785).toFixed(1)}평`:'';
 function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Props&{which:'original'|'target'}){
@@ -32,7 +32,7 @@ function ApartmentCard({which,project,assets,update,onFiles,busy,uploading}:Prop
     catch(e){if(valid(n))setError((e as Error).message);}finally{if(valid(n))setLoading(false);}
   };
   const importImage=async(url:string)=>{const n=++sequence.current;setLoading(true);try{const a=await api.floorplan(project.id,`floorplan-${which}`,url);if(valid(n))update({[which]:{...latest.current,floorplanAssetId:a.id},comparison:null});}catch(e){if(valid(n))setError((e as Error).message);}finally{if(valid(n))setLoading(false);}};
-  const uploadPlan=async(files:File[],role:Role)=>{const before=new Set(assets.map(a=>a.id));await onFiles(files,role);if(!mounted.current)return;const data=await api.bootstrap(),a=data.assets.find(a=>a.projectId===project.id&&a.role===role&&!before.has(a.id));if(a)update({[which]:{...latest.current,floorplanAssetId:a.id},comparison:null});};
+  const uploadPlan=async(files:File[],role:Role)=>{const uploaded=await onFiles(files,role);const a=uploaded?.find(a=>a.role===role);if(a&&mounted.current)update({[which]:{...latest.current,floorplanAssetId:a.id},comparison:null});};
   const plan=site.floorplanAssetId?assets.find(a=>a.id===site.floorplanAssetId):!site.details?assets.find(a=>a.role===`floorplan-${which}`):undefined;
   return <section className="card site-card apartment-card"><div className="card-top"><span className={`site-badge ${which==='original'?'original':'target'}`}>{isCase?'현장':which==='original'?'A':'B'}</span><div><h3>{isCase?'시공 현장':which==='original'?'원본 시공 현장':'추천글 대상 현장'}</h3><p>{which==='original'?'실제로 시공한 현장':'디자인을 추천할 현장'}</p></div><Building2 size={22}/></div>
     <Field label="아파트명"><input value={site.name} onChange={e=>changeInput('name',e.target.value)} placeholder="예: 메트로시티"/></Field><Field label="지역 · 선택 사항"><input value={site.region} onChange={e=>changeInput('region',e.target.value)} placeholder="예: 창원시 양덕동"/></Field>

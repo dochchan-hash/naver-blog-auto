@@ -254,7 +254,6 @@
   /* ───────── 상태 ───────── */
   function loadStatus() {
     return api('/status').then(function (s) {
-      reportBusy(s.busy || cv && cv.applying);
       var c = s.chrome || {};
       var h = '';
       h += '<span class="chip ' + (c.loggedIn ? 'ok' : 'bad') + '">' + (c.loggedIn ? '카페 로그인됨' : '로그인 필요') + '</span>';
@@ -524,7 +523,7 @@
     Promise.all([api('/jobs/' + id), api('/boards')]).then(function (r) {
       if(selectedKind!==kind||currentId!==id||view!=='job')return;
       if(r[0].분류!==kind){show('jobs');return;}
-      job=r[0];boardsData=r[1];renderJob();if(job.running)startPoll('/log/'+job.id,'job');
+      job=r[0];boardsData=r[1];renderJob();reportBusy(job.running);if(job.running&&job.activeLog)startPoll('/log/'+job.activeLog,'job');
     });
   }
 
@@ -689,8 +688,9 @@
       try {
         while (job && job.draft && dirty) {
           collect(); dirty = false;
-          var result = await api('/jobs/' + job.id, { method: 'PUT', body: { title: job.title, draft: job.draft, board: job.board || undefined, boardManual: !!job.boardManual, tags: job.tags } });
+          var result = await api('/jobs/' + job.id, { method: 'PUT', body: { revision: job.revision || 0, title: job.title, draft: job.draft, board: job.board || undefined, boardManual: !!job.boardManual, tags: job.tags } });
           job.blocks = result.blocks;
+          job.revision = result.revision;
         }
         var saved = $('#jSaved'); if (saved) saved.textContent = '저장됨'; renderPreview();
       } catch (error) {
@@ -958,6 +958,7 @@
         logAfter = r.next;
         if (!r.running) {
           stopPoll();
+          reportBusy(false);
           if (mode === 'job') Promise.all([api('/jobs/' + currentId), api('/boards')]).then(function (values) {
             var j = values[0]; job = j; boardsData = values[1]; renderJob(); var l = $('#jLog'); if (l) l.classList.add('hide'); if (r.error) $('#jErr').textContent = r.error;
             if (notifyWhenDone) {

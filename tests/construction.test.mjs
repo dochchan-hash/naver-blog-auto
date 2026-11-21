@@ -100,6 +100,54 @@ test('공사전·공사중 연결은 스튜디오 CSRF와 내부 포트 인증�
   runtime.construction.browserBusy=false;
 });
 
+test('카페 입력과 다른 종류의 원고 생성은 함께 진행되고 같은 원고의 수정만 잠긴다',async t=>{
+  const {runtime,request}=await setup(t);
+  runtime.auth.status=()=>({connected:true});
+  const caseProject=runtime.store.createProject('case'),completion=runtime.store.createProject('completion');
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  runtime.ai.generate=async id=>{await gate;return {project:runtime.store.updateProject(id,{title:'생성 완료'})};};
+  runtime.construction.browserBusy=true;
+  const ids=[];
+  try{
+    for(const project of [caseProject,completion]){
+      const started=await request('/api/projects/'+project.id+'/tasks/generate',{expectedRevision:project.revision});
+      assert.equal(started.status,202);ids.push((await started.json()).id);
+    }
+    assert.equal(runtime.jobs.active.size,2);
+    const blocked=await request('/api/projects/'+caseProject.id,{...caseProject,name:'다른 창의 변경'},'PUT');
+    assert.equal(blocked.status,409);
+    const prepared=await request('/api/projects/'+completion.id+'/tasks/prepare',{expectedRevision:completion.revision});
+    assert.equal(prepared.status,409);
+  }finally{
+    release();
+    await Promise.all(ids.map(async id=>{
+      while(runtime.jobs.active.has(id))await new Promise(resolve=>setImmediate(resolve));
+      assert.equal(runtime.store.get('job',id).status,'completed');
+    }));
+  }
+  assert.equal(runtime.store.get('project',caseProject.id).title,'생성 완료');
+  assert.equal(runtime.store.get('project',completion.id).title,'생성 완료');
+});
+
+test('파일 첨부 중에는 같은 원고 삭제만 막고 다른 원고는 계속 저장한다',async t=>{
+  const {runtime,request}=await setup(t);
+  const uploading=runtime.store.createProject('case'),other=runtime.store.createProject('completion');
+  let signalStarted,release;
+  const started=new Promise(resolve=>{signalStarted=resolve;}),gate=new Promise(resolve=>{release=resolve;});
+  runtime.assets.upload=async()=>{signalStarted();await gate;return {role:'construction'};};
+  const transfer=request('/api/projects/'+uploading.id+'/assets',{});
+  try{
+    await started;
+    const deleted=await request('/api/projects/'+uploading.id,undefined,'DELETE');
+    assert.equal(deleted.status,409);
+    const saved=await request('/api/projects/'+other.id,{...other,name:'마감 원고 수정'},'PUT');
+    assert.equal(saved.status,200);
+  }finally{release();assert.equal((await transfer).status,201);}
+  assert.equal(runtime.store.get('project',uploading.id).id,uploading.id);
+  assert.equal(runtime.store.get('project',other.id).name,'마감 원고 수정');
+});
+
 test('두 공사 콘텐츠의 사진·수정 원고는 분리 저장되고 엔진 재시작 후에도 유지된다',async t=>{
   const a=await setup(t),b=await setup(t);
   const image=await sharp({create:{width:100,height:80,channels:3,background:'#ddd'}}).jpeg().toBuffer();
@@ -111,8 +159,11 @@ test('두 공사 콘텐츠의 사진·수정 원고는 분리 저장되고 엔�
     const saved=await (await a.request('/api/cafe/jobs/'+id)).json();assert.equal(saved.분류,kind);assert.deepEqual(saved.photos,['현장 사진.jpg']);
     assert.ok(saved.titles.every(title=>!title.includes('34평')));
     const draft={intro:'검증 인사말',sections:[{space:'거실',photos:saved.photos,text:'수정한 현장 설명',layout:'individual'}],outro:'검증 마무리'};
-    const edited=await a.request('/api/cafe/jobs/'+id,{title:`[테스트] ${kind}`,draft,tags:['현장확인']},'PUT');assert.equal(edited.status,200);
-    assert.ok((await edited.json()).blocks.some(block=>block.text==='수정한 현장 설명'));
+    const update={revision:saved.revision,title:`[테스트] ${kind}`,draft,tags:['현장확인']};
+    const edited=await a.request('/api/cafe/jobs/'+id,update,'PUT');assert.equal(edited.status,200);
+    const current=await edited.json();assert.ok(current.blocks.some(block=>block.text==='수정한 현장 설명'));assert(current.revision>saved.revision);
+    const stale=await a.request('/api/cafe/jobs/'+id,{...update,title:'다른 창의 이전 원고'},'PUT');assert.equal(stale.status,409);
+    assert.equal((await (await a.request('/api/cafe/jobs/'+id)).json()).title,update.title);
     const photo=await a.request('/api/cafe/jobs/'+id+'/photo/'+encodeURIComponent(saved.photos[0]));assert.deepEqual(Buffer.from(await photo.arrayBuffer()),image);
     for(const options of [{mode:'publish',confirm:true,dryRun:false},{mode:'draft',confirm:true},{dryRun:false}]){
       const refused=await a.request('/api/cafe/jobs/'+id+'/publish',options);assert.equal(refused.status,400);assert.match((await refused.json()).error,/임시등록/);

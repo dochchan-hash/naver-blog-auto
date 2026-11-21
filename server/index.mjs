@@ -56,18 +56,24 @@ export async function createServer({dataDir=process.env.LEMONHOUSE_DATA_DIR||pat
     next();
   });
   const construction=new Construction(dataDir,bridge?.naverCookies?()=>bridge.naverCookies():null);
+  const naverTaskKinds=['prepare','publish','verify'];
+  const usesNaverEditor=job=>naverTaskKinds.includes(job.kind)||job.kind==='generate'&&store.get('project',job.projectId)?.publishMode==='automatic';
   app.get('/construction', (req,res)=>res.type('html').send(construction.html(req.localSession.csrf,req.query.kind==='during'?'during':'before')));
   app.use('/api/cafe',asyncRoute(async(req,res,next)=>{
-    if(req.method!=='GET'&&[...jobs.active.values()].some(j=>['prepare','publish','verify','format','style'].includes(j.kind)))return res.status(409).json({error:'스튜디오의 네이버 작업이 끝난 뒤 시도해 주세요.'});
+    if(req.method==='POST'&&(/^\/(?:chrome\/open|jobs\/[^/]+\/publish|boards\/refresh|style\/link)$/.test(req.path))&&[...jobs.active.values()].some(usesNaverEditor))return res.status(409).json({error:'스튜디오의 네이버 입력이 끝난 뒤 시도해 주세요.'});
     if(bridge&&req.method==='POST'&&req.path==='/chrome/open'){await naver.login(store.get('settings','main').blogId);return res.json({opened:true});}
     return construction.proxy(req,res,next);
   }));
   app.use((req,res,next)=>{
-    if(req.method!=='GET'&&construction.browserBusy&&!req.path.startsWith('/api/cafe/')&&(req.path.startsWith('/api/naver/')||req.path.startsWith('/api/style/')||/^\/api\/projects\/[^/]+\/tasks\//.test(req.path)))return res.status(409).json({error:'공사전·공사중 카페 작업이 끝난 뒤 시도해 주세요.'});
+    if(req.method!=='GET'&&construction.browserBusy&&(req.path.startsWith('/api/naver/')||req.path.startsWith('/api/style/')))return res.status(409).json({error:'공사전·공사중 카페 작업이 끝난 뒤 시도해 주세요.'});
     next();
   });
   app.use(express.json({limit:'4mb'}));
-  const ensureEditable=id=>{if([...jobs.active.values()].some(j=>j.projectId===id))throw Object.assign(new Error('자동 작업이 끝난 뒤 원고를 수정해 주세요.'),{status:409});};
+  const activeUploads=new Set();
+  const ensureEditable=id=>{
+    if(activeUploads.has(id))throw Object.assign(new Error('이 원고의 파일 첨부가 끝난 뒤 다시 시도해 주세요.'),{status:409});
+    if([...jobs.active.values()].some(j=>j.projectId===id))throw Object.assign(new Error('자동 작업이 끝난 뒤 원고를 수정해 주세요.'),{status:409});
+  };
   app.get('/api/health',(_,res)=>res.json({ok:true,version:'0.1.0',desktop:!!bridge}));
   app.get('/api/bootstrap',asyncRoute(async(req,res)=>{if(!naver.statusPending){naver.statusPending=naver.status().catch(()=>{}).finally(()=>{naver.statusPending=null;});}return res.json({projects:store.list('project'),assets:store.assets(),style:store.get('style','main'),caseStyle:store.get('style','case'),completionStyle:store.get('style','completion'),settings:store.get('settings','main'),auth:auth.status(),browser:naver.cachedStatus||{available:!!bridge,connected:false,verified:false},jobs:store.list('job').slice(0,50),csrf:req.localSession.csrf,platform:process.platform});}));
   app.post('/api/projects',(req,res,next)=>{try{res.json(store.createProject(z.enum(['recommendation','case','completion']).default('recommendation').parse(req.body.postType)));}catch(e){next(e);}});
@@ -126,7 +132,16 @@ export async function createServer({dataDir=process.env.LEMONHOUSE_DATA_DIR||pat
     else res.type('html').attachment(`${p.postType||'recommendation'}.html`).send(exportHtml(p,store.assets(p.id)));
   }));
   app.delete('/api/projects/:id',asyncRoute(async(req,res)=>{ensureEditable(req.params.id);if(!store.get('project',req.params.id))throw Object.assign(new Error('원고를 찾을 수 없습니다.'),{status:404});for(const asset of store.assets(req.params.id))store.remove('asset',asset.id);for(const job of store.list('job').filter(j=>j.projectId===req.params.id))store.remove('job',job.id);store.remove('project',req.params.id);if(!store.list('project').length)store.createProject();res.json({ok:true});}));
-  app.post('/api/projects/:id/assets',asyncRoute(async(req,res)=>{ensureEditable(req.params.id);const asset=await assets.upload(req,req.params.id,req.query.role);res.status(201).json(asset);if(asset.role==='photo'&&req.query.classify!=='false'){const prepared=assets.queue;store.put('asset',asset.id,{...store.get('asset',asset.id),warning:'공간 자동 분류를 준비하고 있습니다.'});ai.photoQueue=(ai.photoQueue||Promise.resolve()).then(async()=>{await prepared;const ready=store.asset(asset.id);if(!ready||ready.status!=='ready')return;try{if(!auth.status().connected)throw new Error('AI 계정을 연결한 뒤 사진 분석을 눌러 주세요.');await ai.analyzeAsset(ready);}catch(e){const raw=store.get('asset',ready.id);if(raw)store.put('asset',ready.id,{...raw,warning:`자동 분류 실패: ${e.message}`});}}).catch(()=>{});}}));
+  app.post('/api/projects/:id/assets',asyncRoute(async(req,res)=>{
+    const id=req.params.id;
+    ensureEditable(id);
+    activeUploads.add(id);
+    let asset;
+    try{asset=await assets.upload(req,id,req.query.role);}
+    finally{activeUploads.delete(id);}
+    res.status(201).json(asset);
+    if(asset.role==='photo'&&req.query.classify!=='false'){const prepared=assets.queue;store.put('asset',asset.id,{...store.get('asset',asset.id),warning:'공간 자동 분류를 준비하고 있습니다.'});ai.photoQueue=(ai.photoQueue||Promise.resolve()).then(async()=>{await prepared;const ready=store.asset(asset.id);if(!ready||ready.status!=='ready')return;try{if(!auth.status().connected)throw new Error('AI 계정을 연결한 뒤 사진 분석을 눌러 주세요.');await ai.analyzeAsset(ready);}catch(e){const raw=store.get('asset',ready.id);if(raw)store.put('asset',ready.id,{...raw,warning:`자동 분류 실패: ${e.message}`});}}).catch(()=>{});}
+  }));
   app.patch('/api/assets/batch',asyncRoute(async(req,res)=>{
     const updates=z.array(z.object({id:z.string(),space:z.string().optional(),group:z.string().optional(),order:z.number().int().nonnegative().optional(),excluded:z.boolean().optional()})).parse(req.body);
     const checked=updates.map(patch=>{const a=store.get('asset',patch.id);if(!a)throw Object.assign(new Error('사진을 찾을 수 없습니다.'),{status:404});ensureEditable(a.projectId);if(a.role!=='photo'||patch.space!==undefined&&!photoSpaces(store.get('project',a.projectId)).includes(patch.space))throw Object.assign(new Error('사진의 공간 분류를 확인해 주세요.'),{status:400});return {...a,...patch,...(patch.space?{spaceManual:true}:{}),...(patch.group!==undefined||patch.order!==undefined?{layoutManual:true}:{})};});
@@ -170,7 +185,10 @@ export async function createServer({dataDir=process.env.LEMONHOUSE_DATA_DIR||pat
   app.post('/api/naver/complex',asyncRoute(async(req,res)=>res.json(await naver.readComplex(z.string().parse(req.body.url),z.string().optional().parse(req.body.type)))));
   app.post('/api/naver/floorplan',asyncRoute(async(req,res)=>res.json(await naver.importFloorplan(z.string().parse(req.body.projectId),z.enum(['floorplan-original','floorplan-target']).parse(req.body.role),z.string().parse(req.body.url)))));
   app.post('/api/projects/:id/tasks/:kind',asyncRoute(async(req,res)=>{
-    if(!store.get('project',req.params.id))throw Object.assign(new Error('원고를 찾을 수 없습니다.'),{status:404});
+    const selected=store.get('project',req.params.id);
+    if(!selected)throw Object.assign(new Error('원고를 찾을 수 없습니다.'),{status:404});
+    ensureEditable(selected.id);
+    if(construction.browserBusy&&usesNaverEditor({kind:req.params.kind,projectId:selected.id}))throw Object.assign(new Error('공사전·공사중 카페 입력이 끝난 뒤 시도해 주세요.'),{status:409});
     const task=req.params.kind;if(store.get('project',req.params.id).postType==='completion'&&['publish','verify'].includes(task))throw Object.assign(new Error('마감은 카페 편집기에 준비한 뒤 직접 검토하고 등록해 주세요.'),{status:400});const handlers={templates:async update=>{
       let sourceError;const p=store.get('project',req.params.id);
       if(p.postType==='case'&&p.scopeTemplateId&&(p.cafeUrl.trim()||p.sourceText.trim()))try{

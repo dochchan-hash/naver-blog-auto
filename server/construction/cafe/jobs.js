@@ -28,6 +28,7 @@ function get(id) {
 }
 
 function save(job) {
+  job.revision = (job.revision || 0) + 1;
   job.updatedAt = new Date().toISOString();
   writeJson(path.join(dir(job.id), 'job.json'), job);
   return job;

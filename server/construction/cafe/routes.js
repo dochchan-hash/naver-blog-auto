@@ -126,7 +126,8 @@ function withTags(j) {
 
 function view(job) {
   const j = withTags(healed(job));
-  return { ...j, board: boards.forJob(j), coverTitle: cover.표지제목(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: logOf(j.id).running || logOf(`pub-${j.id}`).running || coverRuns.has(j.id), hasVideo: !!j.video };
+  const activeLog = [j.id, `pub-${j.id}`].find(key => logOf(key).running) || (coverRuns.has(j.id) ? `cover-${j.id}` : null);
+  return { ...j, board: boards.forJob(j), coverTitle: cover.표지제목(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: !!activeLog, activeLog, hasVideo: !!j.video };
 }
 
 /** 썸네일(작은 사본)을 만들어 돌려준다. 화면 확인용 — 발행에는 원본이 쓰인다. */
@@ -225,9 +226,10 @@ function mount(app) {
 
   // ── 진행 로그 ─────────────────────────────
   r.get('/log/:key', (req, res) => {
-    const L = logOf(req.params.key);
+    const key = req.params.key;
+    const L = logOf(key);
     const after = Number(req.query.after) || 0;
-    res.json({ lines: L.lines.slice(after), next: L.lines.length, running: L.running, error: L.error });
+    res.json({ lines: L.lines.slice(after), next: L.lines.length, running: L.running || (key.startsWith('cover-') && coverRuns.has(key.slice(6))), error: L.error });
   });
 
   // ── 말투(기준 글 링크) ────────────────────
@@ -318,6 +320,7 @@ function mount(app) {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: '작업을 찾지 못했습니다.' });
     const b = req.body || {};
+    if (b.revision !== undefined && b.revision !== (job.revision || 0)) return res.status(409).json({ error: '다른 창에서 이 원고를 수정했습니다. 현재 내용을 복사해 둔 뒤 원고를 다시 열어 주세요.' });
     const f = {};
     for (const k of ['title', '시도', '구', '동', '아파트명', '평수', '메모']) if (typeof b[k] === 'string') f[k] = b[k];
     if (b.분류 !== undefined && b.분류 !== job.분류) return res.status(400).json({error:'공사 종류는 변경할 수 없습니다. 왼쪽 메뉴에서 해당 종류의 새 작업을 만들어 주세요.'});
