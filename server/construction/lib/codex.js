@@ -2,7 +2,7 @@
 //
 // claude.js 와 같은 모양으로 run({ prompt, cwd, images, model, onLog, onProcess }) → { text } 를 돌려준다.
 // 사진은 -i 로 첨부한다 (Claude 처럼 파일을 열어 보는 방식이 아니다).
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -16,13 +16,25 @@ function resolveBin() {
   if (process.env.CODEX_BIN) return { cmd: process.env.CODEX_BIN, pre: [] };
   if (process.platform !== 'win32') return { cmd: 'codex', pre: [] };
 
-  // 데스크톱 앱에 포함된 Codex는 npm 패키지 대신 exe로 설치된다.
+  // 독립 CLI 설치를 먼저 사용한다.
   try {
     const executable = execSync('where codex.exe', { encoding: 'utf8', windowsHide: true })
       .trim().split(/\r?\n/).find((p) => fs.existsSync(p));
     if (executable) return { cmd: executable, pre: [] };
   } catch {
-    // exe가 없으면 기존 npm 설치 경로를 찾는다.
+    // 작업표시줄에서 실행하면 Codex 앱 경로가 PATH에 없을 수 있다.
+  }
+
+  try {
+    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const command = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-AppxPackage -Name OpenAI.Codex | ForEach-Object { Join-Path $_.InstallLocation 'app\\resources\\codex.exe' }";
+    const installed = execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', command], {
+      encoding: 'utf8', windowsHide: true, timeout: 8000
+    });
+    const executable = installed.split(/\r?\n/).map(p => p.trim()).find(p => path.isAbsolute(p) && fs.existsSync(p));
+    if (executable) return { cmd: executable, pre: [] };
+  } catch {
+    // Microsoft Store 설치가 없으면 기존 npm 경로를 사용한다.
   }
 
   const rels = ['node_modules', '@openai', 'codex', 'bin', 'codex.js'];
@@ -36,7 +48,7 @@ function resolveBin() {
   }
   const found = candidates.find((p) => fs.existsSync(p));
   if (!found) {
-    throw new Error('codex 실행 파일을 찾지 못했습니다. `npm i -g @openai/codex` 로 설치하거나 CODEX_BIN 환경변수로 경로를 지정해 주세요.');
+    throw new Error('Codex를 찾지 못했습니다. Windows용 Codex 앱 또는 Codex CLI를 설치해 주세요. 별도 실행 경로는 CODEX_BIN으로 지정할 수 있습니다.');
   }
   return { cmd: process.execPath, pre: [found] };
 }

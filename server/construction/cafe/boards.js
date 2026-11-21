@@ -1,7 +1,5 @@
 // 지역 → 카페 '공사중 현장' 게시판 연결.
-//
-// 레퍼런스 글 주소의 menuid 로 확인된 것(서울 282, 부산 67, 대전·세종 258)을 기본값으로 두고,
-// 로그인된 크롬으로 카페 메뉴를 읽어 나머지 지역을 채운다. 화면에서 직접 고칠 수도 있다.
+// 로그인된 크롬으로 현재 카페 메뉴를 읽는다.
 const fs = require('fs');
 const path = require('path');
 const chrome = require('./chrome');
@@ -11,10 +9,17 @@ const FILE = path.join(DATA_DIR, 'boards.json');
 
 const DEFAULT = {
   byRegion: {}, // 설정 탭의 [카페에서 게시판 불러오기]로 채운다
+  overrides: {},
   all: [],
   updatedAt: null,
 };
-const menuName = value => String(value || '').replaceAll('&middot;', '·');
+const menuName = value => String(value || '').replace(/&middot;|&#183;|&#xB7;/gi, '·').replace(/\s+/g, ' ').trim();
+
+function liveBoard(all, saved) {
+  if (!saved) return null;
+  const matches = all.filter(board => board.menuId === Number(saved.menuId) && board.name === menuName(saved.name));
+  return matches.length === 1 ? matches[0] : null;
+}
 
 const 시도줄임 = [
   [/^서울/, '서울'], [/^부산/, '부산'], [/^대구/, '대구'], [/^인천/, '인천'], [/^광주/, '광주'],
@@ -33,11 +38,14 @@ function normRegion(s) {
 function load() {
   try {
     const d = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    const all = (d.all || []).map(board => ({ ...board, name: menuName(board.name) }));
     const byRegion = {};
     for (const [key, board] of Object.entries(d.byRegion || {})) {
-      for (const region of menuName(key).split(/[,，/·]/)) byRegion[normRegion(region)] = { ...board, name: menuName(board.name) };
+      const current = liveBoard(all, board);
+      if (!current) continue;
+      for (const region of menuName(key).split(/[,，/·]/)) byRegion[normRegion(region)] = current;
     }
-    return { ...DEFAULT, ...d, all: (d.all || []).map(board => ({ ...board, name: menuName(board.name) })), byRegion };
+    return { ...DEFAULT, ...d, all, byRegion };
   } catch {
     return JSON.parse(JSON.stringify(DEFAULT));
   }
@@ -45,7 +53,9 @@ function load() {
 
 function save(data) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2), 'utf8');
+  const temporary = FILE + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(temporary, FILE);
   return data;
 }
 
@@ -54,38 +64,50 @@ function save(data) {
  * 게시판은 시/도가 아니라 도시 단위인 곳이 많다(김해, 창원, 수원·동탄, 용인…).
  * 그래서 구/시 → 동 → 시/도 순서로 찾는다.
  */
-function pick(시도, 구 = '', 동 = '') {
-  const d = load();
+function pick(시도, 구 = '', 동 = '', d = load()) {
   const tokens = String(구 + ' ' + 동)
     .split(/\s+/)
     .filter(Boolean)
     .map((t) => t.replace(/시$/, ''));
   for (const t of tokens) if (d.byRegion[t]) return d.byRegion[t];
-  return d.byRegion[normRegion(시도)] || null;
+  const region = normRegion(시도);
+  return d.byRegion[region] || (['충북','충남'].includes(region) ? d.byRegion.충청 : null) || null;
+}
+
+function forJob(job, data = load()) {
+  if (job.boardManual) return liveBoard(data.all, job.board);
+  return pick(job.시도, job.구, job.동, data);
 }
 
 /** 화면에서 지역 → 게시판을 직접 지정한다. */
-function setRegion(region, menuId, name) {
+function setRegion(region, menuId) {
   const d = load();
   const key = normRegion(region);
   if (!key) throw new Error('지역을 입력해 주세요.');
-  if (!menuId) delete d.byRegion[key];
-  else d.byRegion[key] = { menuId: Number(menuId), name: name || `게시판 ${menuId}` };
+  if (!menuId) {
+    delete d.overrides[key];
+    delete d.byRegion[key];
+  } else {
+    const board = d.all.find(item => item.menuId === Number(menuId));
+    if (!board) throw new Error('현재 카페 목록에 있는 게시판을 골라 주세요.');
+    d.overrides[key] = board;
+    d.byRegion[key] = board;
+  }
   return save(d);
 }
 
 function collectMenus(node, out) {
   if (!node || typeof node !== 'object') return;
   if (Array.isArray(node)) return node.forEach((n) => collectMenus(n, out));
-  if (node.menuId != null && typeof node.menuName === 'string') {
+  if (Number.isSafeInteger(Number(node.menuId)) && Number(node.menuId)>0 && typeof node.menuName === 'string') {
     out.push({ menuId: Number(node.menuId), name: menuName(node.menuName).trim(), type: node.menuType || null });
   }
   for (const v of Object.values(node)) collectMenus(v, out);
 }
 
 /** 로그인된 크롬으로 카페 메뉴 목록을 읽어 '공사중 현장' 게시판을 지역에 연결한다. */
-async function refresh(onLog = () => {}) {
-  const menus = await chrome.withContext(async (context) => {
+async function refresh(onLog = () => {}, context) {
+  const readMenus = async (context) => {
     onLog('카페 게시판 목록을 읽는 중입니다…');
     const res = await context.request.get(`https://apis.naver.com/cafe-web/cafe2/SideMenuList?cafeId=${CAFE_ID}`, {
       headers: { Referer: `https://cafe.naver.com/f-e/cafes/${CAFE_ID}` },
@@ -95,7 +117,8 @@ async function refresh(onLog = () => {}) {
     const out = [];
     collectMenus(await res.json(), out);
     return out;
-  });
+  };
+  const menus = context ? await readMenus(context) : await chrome.withContext(readMenus);
 
   const seen = new Set();
   const all = menus.filter((m) => m.name && !seen.has(m.menuId) && seen.add(m.menuId));
@@ -103,6 +126,7 @@ async function refresh(onLog = () => {}) {
 
   const d = load();
   d.all = all.filter((m) => /공사\s*중/.test(m.name));
+  d.byRegion = {};
   // "서울 공사중 현장", "대전,세종 공사중 현장" 처럼 앞쪽이 지역이다.
   for (const m of d.all) {
     const head = m.name.replace(/\s*공사\s*중.*$/, '');
@@ -111,10 +135,15 @@ async function refresh(onLog = () => {}) {
       if (key) d.byRegion[key] = { menuId: m.menuId, name: m.name };
     }
   }
+  for (const [region, saved] of Object.entries(d.overrides)) {
+    const current = liveBoard(d.all, saved);
+    if (current) d.byRegion[region] = current;
+    else delete d.overrides[region];
+  }
   d.updatedAt = new Date().toISOString();
   save(d);
   onLog(`'공사중 현장' 게시판 ${d.all.length}개를 찾았습니다.`);
   return d;
 }
 
-module.exports = { load, pick, setRegion, refresh, normRegion };
+module.exports = { load, pick, forJob, setRegion, refresh, normRegion, menuName };

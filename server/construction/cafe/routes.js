@@ -126,7 +126,7 @@ function withTags(j) {
 
 function view(job) {
   const j = withTags(healed(job));
-  return { ...j, coverTitle: cover.표지제목(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: logOf(j.id).running || logOf(`pub-${j.id}`).running || coverRuns.has(j.id), hasVideo: !!j.video };
+  return { ...j, board: boards.forJob(j), coverTitle: cover.표지제목(j), coverLogo:fs.existsSync(cover.logoFile(j.분류)), suggestions: tagsLib.suggestions(j), blocks: writer.blocks(j), running: logOf(j.id).running || logOf(`pub-${j.id}`).running || coverRuns.has(j.id), hasVideo: !!j.video };
 }
 
 /** 썸네일(작은 사본)을 만들어 돌려준다. 화면 확인용 — 발행에는 원본이 쓰인다. */
@@ -253,8 +253,8 @@ function mount(app) {
 
   r.put('/boards/region', (req, res) => {
     try {
-      const { region, menuId, name } = req.body || {};
-      res.json(boards.setRegion(region, menuId, name));
+      const { region, menuId } = req.body || {};
+      res.json(boards.setRegion(region, menuId));
     } catch (e) {
       res.status(400).json({ error: e.message });
     }
@@ -324,7 +324,17 @@ function mount(app) {
     if (Array.isArray(b.tags)) f.tags = [...new Set(b.tags.map((t) => String(t).replace(/[\s#]/g, '')).filter(Boolean))].slice(0, 10);
     if (b.place && b.place.name) f.place = { name: String(b.place.name), address: String(b.place.address || '') };
     if (Array.isArray(b.titles)) f.titles = b.titles.map(String);
-    if (b.board && b.board.menuId) f.board = { menuId: Number(b.board.menuId), name: String(b.board.name || '') };
+    if (typeof b.boardManual === 'boolean') {
+      if (b.boardManual && b.board) {
+        const board = boards.forJob({ boardManual: true, board: b.board });
+        if (!board) return res.status(400).json({ error: '게시판 목록이 바뀌었습니다. 최신 목록에서 다시 골라 주세요.' });
+        f.board = board;
+        f.boardManual = true;
+      } else if (!b.boardManual) {
+        f.board = null;
+        f.boardManual = false;
+      }
+    }
     if (b.draft) {
       const d = b.draft;
       f.draft = {
@@ -363,8 +373,8 @@ function mount(app) {
       const t = titles.후보(job);
       const f = { titles: t, title: t[0] || job.title, tags: tagsLib.build(job) };
       if ((req.body || {}).repickBoard) {
-        const b = boards.pick(job.시도, job.구, job.동);
-        if (b) f.board = b;
+        f.board = boards.pick(job.시도, job.구, job.동);
+        f.boardManual = false;
       }
       jobs.patch(id, f);
       if (job.cover && job.cover.photo) await makeCover(id);
@@ -514,7 +524,6 @@ function mount(app) {
     if (!['draft','prepare'].includes(mode) || req.body?.dryRun === false || req.body?.confirm === true) return res.status(400).json({ error: '공사전·공사중은 카페 임시등록까지만 진행합니다.' });
     if (!job.draft) return res.status(400).json({ error: '먼저 글을 만들어 주세요.' });
     if (!job.title.trim()) return res.status(400).json({ error: '제목을 입력해 주세요.' });
-    if (!job.board || !job.board.menuId) return res.status(400).json({ error: '올릴 게시판을 골라 주세요.' });
     if (!job.cover || !job.cover.made) return res.status(400).json({ error: '표지 이미지를 먼저 만들어 주세요.' });
     if (job.stage === 'published') return res.status(409).json({ error: '이미 발행한 글입니다.' });
 
@@ -535,10 +544,10 @@ function mount(app) {
         throw e;
       }
       if (result?.prepared === true && mode === 'prepare') {
-        jobs.patch(id, { stage: 'prepared' });
+        jobs.patch(id, { stage: 'prepared', board: result.board });
         log('카페 입력을 마쳤습니다. 열린 카페 창에서 검토해 주세요. 임시등록·최종 등록은 누르지 않았습니다.', 'success');
       } else if (result?.draft === true && mode === 'draft') {
-        jobs.patch(id, { stage: 'saved', savedAt: new Date().toISOString() });
+        jobs.patch(id, { stage: 'saved', board: result.board, savedAt: new Date().toISOString() });
         log('카페에 임시저장했습니다. 카페 글쓰기 화면의 [임시등록] 목록에서 불러와 확인한 뒤 등록하세요.', 'success');
         notify.toast(
           warns ? '카페 임시 저장 완료 (확인 필요 있음)' : '카페 임시 저장 완료',

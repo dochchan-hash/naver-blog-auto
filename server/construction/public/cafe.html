@@ -529,11 +529,7 @@
   }
 
   function boardOptions() {
-    var map = {};
-    Object.keys(boardsData.byRegion || {}).forEach(function (k) { var b = boardsData.byRegion[k]; map[b.menuId] = b.name; });
-    (boardsData.all || []).forEach(function (b) { map[b.menuId] = b.name; });
-    if (job.board) map[job.board.menuId] = job.board.name;
-    return Object.keys(map).map(function (id) { return { menuId: Number(id), name: map[id] }; });
+    return boardsData.all || [];
   }
 
   function renderJob() {
@@ -581,9 +577,11 @@
 
     // 게시판 · 영상
     var opts = boardOptions();
-    h += '<div class="card"><h2>올릴 게시판</h2><select id="jBoard"><option value="">선택해 주세요</option>' + opts.map(function (b) {
-      return '<option value="' + b.menuId + '"' + (j.board && j.board.menuId === b.menuId ? ' selected' : '') + '>' + esc(b.name) + '</option>';
-    }).join('') + '</select><div class="muted" style="margin-top:4px">시/도에 맞는 "공사중 현장" 게시판이 자동으로 정해집니다. 아니면 직접 골라 주세요.</div>' +
+    h += '<div class="card"><h2>올릴 게시판</h2><select id="jBoard"><option value="">자동 선택' +
+      (!j.boardManual && j.board ? ' · ' + esc(j.board.name) : '') + '</option>' +
+      (j.boardManual && !j.board ? '<option selected disabled>지정한 게시판이 없어 다시 선택이 필요합니다</option>' : '') + opts.map(function (b) {
+      return '<option value="' + b.menuId + '"' + (j.boardManual && j.board && j.board.menuId === b.menuId ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+    }).join('') + '</select><div class="muted" style="margin-top:4px">카페 입력을 시작하면 현재 게시판 목록을 다시 불러옵니다.</div>' +
       '<h2 style="margin-top:14px">현장 영상 (선택)</h2><div class="muted">' + (j.video ? esc(j.video) + ' 올라가 있음' : '없음') + '</div>' +
       '<div class="row" style="margin-top:6px"><input type="file" id="jVideo" accept="video/*" style="flex:3">' + (j.video ? '<button class="btn small danger" id="jVideoDel">영상 빼기</button>' : '') + '</div></div>';
 
@@ -637,6 +635,7 @@
 
     $('#jBoard').onchange = function () {
       var opt = this.options[this.selectedIndex];
+      job.boardManual = !!this.value;
       job.board = this.value ? { menuId: Number(this.value), name: opt.textContent } : null; touch();
     };
     $('#jVideo').onchange = function () {
@@ -690,7 +689,7 @@
       try {
         while (job && job.draft && dirty) {
           collect(); dirty = false;
-          var result = await api('/jobs/' + job.id, { method: 'PUT', body: { title: job.title, draft: job.draft, board: job.board || undefined, tags: job.tags } });
+          var result = await api('/jobs/' + job.id, { method: 'PUT', body: { title: job.title, draft: job.draft, board: job.board || undefined, boardManual: !!job.boardManual, tags: job.tags } });
           job.blocks = result.blocks;
         }
         var saved = $('#jSaved'); if (saved) saved.textContent = '저장됨'; renderPreview();
@@ -959,8 +958,8 @@
         logAfter = r.next;
         if (!r.running) {
           stopPoll();
-          if (mode === 'job') api('/jobs/' + currentId).then(function (j) {
-            job = j; renderJob(); var l = $('#jLog'); if (l) l.classList.add('hide'); if (r.error) $('#jErr').textContent = r.error;
+          if (mode === 'job') Promise.all([api('/jobs/' + currentId), api('/boards')]).then(function (values) {
+            var j = values[0]; job = j; boardsData = values[1]; renderJob(); var l = $('#jLog'); if (l) l.classList.add('hide'); if (r.error) $('#jErr').textContent = r.error;
             if (notifyWhenDone) {
               var completedMode = notifyWhenDone;
               notifyWhenDone = false;
@@ -1019,7 +1018,7 @@
     var rows = Object.keys(b.byRegion).map(function (r) {
       return '<tr><td>' + esc(r) + '</td><td>' + esc(b.byRegion[r].name) + ' <span class="muted">(' + b.byRegion[r].menuId + ')</span></td></tr>';
     }).join('');
-    $('#boardTable').innerHTML = '<table>' + rows + '</table><div class="muted" style="margin-top:6px">' + (b.updatedAt ? '마지막으로 불러온 시각 ' + new Date(b.updatedAt).toLocaleString('ko-KR') : '레퍼런스 글에서 확인한 서울·부산·대전/세종만 들어 있습니다. 로그인 후 [불러오기]로 나머지를 채우세요.') + '</div>';
+    $('#boardTable').innerHTML = '<table>' + rows + '</table><div class="muted" style="margin-top:6px">' + (b.updatedAt ? '마지막으로 불러온 시각 ' + new Date(b.updatedAt).toLocaleString('ko-KR') : '카페에 로그인한 뒤 게시판을 불러오세요.') + '</div>';
   }
   $('#btnBoards').onclick = function () {
     var box = $('#boardLog'); box.classList.remove('hide'); box.innerHTML = ''; logAfter = 0;

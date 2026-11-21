@@ -31,6 +31,42 @@ test('공사 AI 연결은 원고 텍스트·실행 제한·한도 오류를 유�
   }
 });
 
+test('Windows 작업표시줄 환경에서도 설치된 Codex 앱으로 공사 원고를 작성한다',async()=>{
+  const executable='C:\\Program Files\\WindowsApps\\OpenAI.Codex_test\\app\\resources\\codex.exe';
+  const module={exports:{}},calls=[];
+  const childProcess={
+    execSync:()=>{throw Error('Codex is missing from PATH');},
+    execFileSync:(command,args)=>{
+      assert.equal(command,'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+      assert.match(args.at(-1),/Get-AppxPackage -Name OpenAI\.Codex/);
+      return `\r\n${executable}\r\n`;
+    },
+    spawn:(command,args,options)=>{
+      calls.push({command,args,options});
+      const child=new EventEmitter();
+      child.stdout=new EventEmitter();child.stderr=new EventEmitter();
+      child.stdin={on(){},end(){}};
+      queueMicrotask(()=>{
+        child.stdout.emit('data',JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'공사전 원고'}})+'\n');
+        child.emit('close',0,null);
+      });
+      return child;
+    }
+  };
+  vm.runInNewContext(await fs.readFile('server/construction/lib/codex.js','utf8'),{
+    module,exports:module.exports,process:{platform:'win32',pid:1,env:{SystemRoot:'C:\\Windows'}},
+    require:name=>({
+      child_process:childProcess,path:path.win32,os:{tmpdir:()=> 'C:\\Temp'},
+      fs:{existsSync:p=>p===executable,readFileSync:()=>{throw Error('no output file');}}
+    })[name]
+  });
+  const options={prompt:'공사전 원고',cwd:'C:\\workspace'};
+  assert.equal((await module.exports.run(options)).text,'공사전 원고');
+  assert.equal(calls[0].command,executable);
+  assert.equal(calls[0].options.shell,false);
+  assert(calls[0].args.includes('read-only'));
+});
+
 async function setup(t,bridge=null){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'studio-construction-'));
   await fs.mkdir(path.join(dir,'construction'),{recursive:true});
@@ -123,19 +159,50 @@ test('카페 API의 가운데점 표기를 실제 게시판 이름으로 복원�
   assert.equal(module.exports.pick('경기','동탄').menuId,1);
 });
 
+test('게시판 새로고침은 이전 창원 연결과 재사용된 거제 번호를 제거하고 경남으로 자동 연결한다',async()=>{
+  const module={exports:{}};
+  const old={menuId:201,name:'창원 공사중 현장'},reused={menuId:213,name:'거제/통영 공사중'},other={menuId:282,name:'서울 공사중 현장'};
+  let stored=JSON.stringify({all:[old,reused,other],byRegion:{창원:old,거제:reused,서울:other,용인:other}});
+  const fileSystem={readFileSync:()=>stored,mkdirSync(){},writeFileSync(_,data){this.pending=data;},renameSync(){stored=this.pending;}};
+  const context={request:{get:async()=>({ok:()=>true,json:async()=>({menus:[
+    {menuId:213,menuName:'경남 공사중 현장'},
+    {menuId:282,menuName:'서울 공사중 현장'},
+    {menuId:201,menuName:'창원 인테리어'}
+  ]})})}};
+  vm.runInNewContext(await fs.readFile('server/construction/cafe/boards.js','utf8'),{module,exports:module.exports,
+    require:name=>name==='fs'?fileSystem:name==='path'?path:name==='./chrome'?{withContext:fn=>fn(context)}:{DATA_DIR:'/unused',CAFE_ID:'123'},Set,console});
+  const boards=module.exports,job={시도:'경남',구:'창원시',동:'가음동',board:old};
+  assert.equal(boards.forJob(job).menuId,201);
+  boards.setRegion('상공간',282);
+  const current=await boards.refresh();
+  assert.equal(current.all.length,2);
+  for(const removed of ['창원','거제','용인'])assert.equal(current.byRegion[removed],undefined);
+  assert.equal(current.byRegion.상공간.menuId,282);
+  assert.equal(boards.forJob(job).name,'경남 공사중 현장');
+  assert.equal(boards.forJob({...job,board:reused,boardManual:true}),null);
+  assert.equal(boards.forJob({...job,board:other,boardManual:true}).menuId,282);
+});
+
 test('화면 준비는 등록 없이 편집기를 남기고 임시등록 모드는 저장 후 닫는다',async()=>{
-  let saved=0,closed=0,visible;
-  const page={on(){},goto:async()=>{},waitForTimeout:async()=>{},url:()=> 'https://cafe.naver.com/ca-fe/articles/write',bringToFront:async()=>{},evaluate:async()=>({image:0,collage:0,map:0,line:0,video:0}),screenshot:async()=>{},close:async()=>{closed++;}};
-  const context={cookies:async()=>[{name:'NID_AUT'},{name:'NID_SES'}],newPage:async()=>page},module={exports:{}};
-  const sandbox=vm.createContext({module,exports:module.exports,require:name=>name==='path'?path:name==='./chrome'?{withContext:(fn,options)=>{visible=options.visible;return fn(context);}}:name==='./jobs'?{photoDir:()=>'/unused',dir:()=>'/unused'}:{},Date,Set,console});
+  let saved=0,closed=0,visible,refreshed=0,opened=0;
+  const current={menuId:213,name:'경남 공사중 현장'};
+  const page={on(){},goto:async url=>assert.match(url,/menuId=213$/),waitForTimeout:async()=>{},url:()=> 'https://cafe.naver.com/ca-fe/articles/write',bringToFront:async()=>{},evaluate:async()=>({image:0,collage:0,map:0,line:0,video:0}),screenshot:async()=>{},close:async()=>{closed++;}};
+  const context={cookies:async()=>[{name:'NID_AUT'},{name:'NID_SES'}],newPage:async()=>{opened++;return page;}},module={exports:{}};
+  const sandbox=vm.createContext({module,exports:module.exports,require:name=>name==='path'?path:name==='./chrome'?{withContext:(fn,options)=>{visible=options.visible;return fn(context);}}:name==='./jobs'?{photoDir:()=>'/unused',dir:()=>'/unused'}:name==='./boards'?{
+    refresh:async(_,requestContext)=>{assert.equal(requestContext,context);refreshed++;return {all:[current]};},
+    forJob:(job,latest)=>job.boardManual?null:latest.all[0]
+  }:{},Date,Set,console});
   vm.runInContext(await fs.readFile('server/construction/cafe/editor.js','utf8'),sandbox);
   sandbox.saved=()=>{saved++;};
   vm.runInContext('pick=async()=>({click:async()=>{},fill:async()=>{}});dismissLayers=normalizeBody=stylePhone=centerComponents=async()=>{};ensureBoard=async()=>true;saveDraft=async()=>saved();',sandbox);
-  const input={job:{id:'cafe-1',board:{menuId:1,name:'테스트'},title:'테스트',tags:[]},blocks:[]};
-  assert.equal((await module.exports.publish({...input,mode:'prepare'})).prepared,true);
+  const input={job:{id:'cafe-1',board:{menuId:201,name:'창원 공사중 현장'},title:'테스트',tags:[]},blocks:[]};
+  const prepared=await module.exports.publish({...input,mode:'prepare'});
+  assert.equal(prepared.prepared,true);assert.equal(prepared.board,current);
   assert.equal(visible,true);assert.equal(saved,0);assert.equal(closed,0);
   assert.equal((await module.exports.publish({...input,mode:'draft'})).draft,true);
   assert.equal(visible,false);assert.equal(saved,1);assert.equal(closed,1);
+  await assert.rejects(module.exports.publish({...input,job:{...input.job,boardManual:true},mode:'draft'}),/지정한 게시판이 현재 카페 목록에 없습니다/);
+  assert.equal(refreshed,3);assert.equal(opened,2);assert.equal(saved,1);
 });
 
 test('검토 창은 보이는 상태로 유지하고 저장·오류일 때 브라우저를 정리한다',async()=>{

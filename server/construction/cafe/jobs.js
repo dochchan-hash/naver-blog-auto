@@ -65,7 +65,7 @@ function create(id, input) {
 }
 
 /** 허용된 필드만 덮어쓴다. */
-const EDITABLE = ['place', 'tags', 'stage', '분류', '시도', '구', '동', '아파트명', '평수', '메모', 'photos', 'cover', 'titles', 'title', 'draft', 'video', 'board', 'error', 'savedAt', 'publishedAt', 'postUrl', 'posted', 'lastRun'];
+const EDITABLE = ['place', 'tags', 'stage', '분류', '시도', '구', '동', '아파트명', '평수', '메모', 'photos', 'cover', 'titles', 'title', 'draft', 'video', 'board', 'boardManual', 'error', 'savedAt', 'publishedAt', 'postUrl', 'posted', 'lastRun'];
 function patch(id, fields) {
   const job = get(id);
   if (!job) throw new Error('작업을 찾지 못했습니다.');

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const chrome = require('./chrome');
 const jobs = require('./jobs');
+const boards = require('./boards');
 const { CAFE_ID } = require('./config');
 
 // 🚨 /f-e/… 주소는 404 다. 글쓰기는 /ca-fe/… 이고, 게시판은 주소로 미리 골라지지 않는다(직접 골라야 한다).
@@ -72,34 +73,25 @@ async function dismissLayers(page, log) {
 /** 게시판 선택 상자에서 원하는 게시판을 고른다. (주소의 menuId 로는 미리 선택되지 않는다) */
 async function ensureBoard(page, board, log) {
   const box = page.locator('.FormSelectBox.menu_candidates_selectbox').first();
-  const 현재 = async () => ((await box.locator('button.button').first().innerText().catch(() => '')) || '').trim();
+  const 현재 = async () => boards.menuName(await box.locator('button.button').first().innerText().catch(() => ''));
 
   if ((await 현재()) === board.name) {
     log(`게시판 확인 — ${board.name}`);
     return true;
   }
   await box.locator('button.button').first().click();
-  await page.waitForTimeout(600);
-  const opt = box.locator('button.option', { hasText: board.name });
-  // 이름이 부분만 겹치는 게시판(예: '공사중 현장' 과 '서울 공사중 현장')이 있어 글자가 정확히 같은 것만 고른다.
-  const n = await opt.count();
-  let clicked = false;
-  for (let i = 0; i < n; i++) {
-    const text = ((await opt.nth(i).innerText()) || '').trim();
-    if (text === board.name) {
-      await opt.nth(i).click();
-      clicked = true;
-      break;
-    }
+  const opt = box.locator('button.option:visible');
+  await opt.first().waitFor({ timeout: 5000 }).catch(() => {});
+  const labels = (await opt.allInnerTexts().catch(() => [])).map(boards.menuName);
+  const matches = labels.flatMap((name, i) => name === board.name ? [i] : []);
+  if (matches.length !== 1) {
+    log(`이 계정의 글쓰기 목록에서 "${board.name}" 게시판을 하나로 확인하지 못했습니다.`, 'error');
+    return false;
   }
-  if (!clicked) {
-    // 로그인한 계정에 이 게시판의 글쓰기 권한이 없으면 목록에 아예 나오지 않는다 (일반 회원 계정으로 로그인한 경우).
-    const have = (await box.locator('button.option').allInnerTexts().catch(() => [])).map((t) => t.trim()).filter(Boolean);
-    log(`이 계정의 글쓰기 목록에 "${board.name}" 이(가) 없습니다. 글쓰기 권한이 있는 계정(운영진)으로 로그인했는지 확인해 주세요. 선택 가능: ${have.join(', ') || '없음'}`, 'error');
-  }
+  await opt.nth(matches[0]).click();
   await page.waitForTimeout(600);
   const now = await 현재();
-  const ok = clicked && now === board.name;
+  const ok = now === board.name;
   log(ok ? `게시판 선택 — ${now}` : `게시판을 고르지 못했습니다 (현재: ${now || '알 수 없음'}, 찾는 이름: ${board.name})`, ok ? 'info' : 'error');
   return ok;
 }
@@ -622,7 +614,6 @@ async function publish({ job, blocks, mode, onLog = () => {} }) {
   let prepared = false;
   const log = (m, level = 'info') => onLog(m, level);
   const pd = jobs.photoDir(job.id);
-  const board = job.board;
   const tags = Array.isArray(job.tags) ? job.tags : [];
 
   return chrome.withContext(async (context) => {
@@ -631,6 +622,15 @@ async function publish({ job, blocks, mode, onLog = () => {} }) {
     if (!['NID_AUT', 'NID_SES'].every((n) => names.has(n))) {
       throw new Error('카페에 로그인돼 있지 않습니다. 설정 탭의 [로그인 창 열기]로 열린 크롬에서 로그인한 뒤 다시 시도해 주세요.');
     }
+    const latest = await boards.refresh(log, context);
+    const board = boards.forJob(job, latest);
+    if (!board) throw new Error(job.boardManual
+      ? '지정한 게시판이 현재 카페 목록에 없습니다. 최신 목록에서 다시 골라 주세요.'
+      : '이 지역에 맞는 게시판을 찾지 못했습니다. 최신 목록에서 직접 골라 주세요.');
+    if (latest.all.filter(item => item.name === board.name).length !== 1) {
+      throw new Error('현재 카페에 이름이 같은 게시판이 있어 올릴 곳을 확인할 수 없습니다.');
+    }
+    log(`최신 게시판 — ${board.name}`);
     // 화면 준비는 보이는 Chrome을 남기고, 임시등록은 백그라운드에서 끝낸다.
     const page = await context.newPage();
     if (mode === 'prepare') await page.bringToFront();
@@ -756,10 +756,10 @@ async function publish({ job, blocks, mode, onLog = () => {} }) {
       if (mode === 'prepare') {
         prepared = true;
         await page.bringToFront();
-        return { prepared: true, screenshot: shot };
+        return { prepared: true, board, screenshot: shot };
       }
       await saveDraft(page, log);
-      return { draft: true, screenshot: shot };
+      return { draft: true, board, screenshot: shot };
     } finally {
       if (!prepared) await page.close().catch(() => {});
     }
